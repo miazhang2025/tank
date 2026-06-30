@@ -39,7 +39,7 @@ export function createAquarium(container, opts = {}) {
     focusDist: FOCUS_DIST, // view-space depth of the focal plane (creatures + mouse bubbles)
     creatures: {
       axolotl: { sx: STAGE.main.axolotl.sx, sy: STAGE.main.axolotl.sy, scale: 1, opacity: 1 },
-      octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 1, opacity: 1 },
+      octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 0.8, opacity: 1 },
     },
   };
   // screen-space anchor (CSS px) above each creature's head — DOM bubbles read this each frame
@@ -525,6 +525,7 @@ export function createAquarium(container, opts = {}) {
       inner,
       mats,
       height: size.y || 1,
+      size: size.clone(), // local box extents → used to seat the FACE on the focal plane
       animations: gltf.animations || [],
       animRoot: root,
     };
@@ -537,13 +538,13 @@ export function createAquarium(container, opts = {}) {
   const _oy = _qp.has('oy') ? parseFloat(_qp.get('oy')) : -Math.PI / 2;
   const creatureState = {
     axolotl: {
-      obj: null, inner: null, mats: [], norm: 1,
+      obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
       phase: 0.0, yaw: _ay, roll: 0,
       mixer: null, idle: null, swim: null, swimBlend: 0,
     },
     octopus: {
-      obj: null, inner: null, mats: [], norm: 1,
+      obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
       phase: 2.1, yaw: _oy, roll: 0,
       mixer: null, idle: null, swim: null, swimBlend: 0,
@@ -561,17 +562,37 @@ export function createAquarium(container, opts = {}) {
 
   const _wp = new THREE.Vector3(),
     _head = new THREE.Vector3(),
-    _proj = new THREE.Vector3();
+    _proj = new THREE.Vector3(),
+    _cfwd = new THREE.Vector3();
 
   function updateCreatures(t, dt) {
     camera.updateMatrixWorld(true);
+    camera.getWorldDirection(_cfwd); // view axis: creatures get pushed back along it
     const k = Math.min(1, dt * 6); // smoothing toward target anchor (swim)
     for (const id of ['axolotl', 'octopus']) {
       const st = creatureState[id];
       if (st.mixer) st.mixer.update(dt);
       if (!st.obj) continue;
       const cc = controls.creatures[id];
-      screenToWorld(cc.sx, cc.sy, controls.focusDist, _wp);
+      // The creature is centred on the focal plane, but the yaw turns its FACE
+      // toward the camera — so the face floats in front of focus and the tight
+      // DOF band reads it as soft. Push the creature back along its view ray by
+      // half its view-facing depth so the front (face) sits exactly on the plane,
+      // and scale up by the same ratio so its on-screen size is unchanged.
+      const S = st.norm * CREATURE_HEIGHT * cc.scale;
+      const cy = Math.cos(st.yaw),
+        sny = Math.sin(st.yaw);
+      const hx = 0.5 * st.size.x * S,
+        hy = 0.5 * st.size.y * S,
+        hz = 0.5 * st.size.z * S;
+      // half-extent of the yawed bounding box projected onto the camera axis
+      const halfDepth =
+        hx * Math.abs(cy * _cfwd.x - sny * _cfwd.z) +
+        hy * Math.abs(_cfwd.y) +
+        hz * Math.abs(sny * _cfwd.x + cy * _cfwd.z);
+      const depth = controls.focusDist + halfDepth;
+      const sizeComp = depth / controls.focusDist;
+      screenToWorld(cc.sx, cc.sy, depth, _wp);
       st.prev.copy(st.base);
       st.base.lerp(_wp, k);
       // idle ↔ swim crossfade by how fast it's travelling on screen
@@ -584,13 +605,13 @@ export function createAquarium(container, opts = {}) {
       }
       const bob = Math.sin(t * 1.1 + st.phase) * 0.04;
       st.obj.position.set(st.base.x, st.base.y + bob, st.base.z);
-      st.obj.scale.setScalar(st.norm * CREATURE_HEIGHT * cc.scale);
+      st.obj.scale.setScalar(S * sizeComp);
       st.obj.rotation.z = st.roll; // screen-z flip
       if (st.inner) st.inner.rotation.set(0, st.yaw + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
       for (const m of st.mats) m.uniforms.uOpacity.value = cc.opacity;
       st.obj.visible = cc.opacity > 0.01;
       // screen anchor just above the head, for the DOM conversation bubbles
-      _head.set(st.base.x, st.base.y + st.norm * CREATURE_HEIGHT * cc.scale * 0.6, st.base.z);
+      _head.set(st.base.x, st.base.y + S * sizeComp * 0.6, st.base.z);
       _proj.copy(_head).project(camera);
       anchors[id].x = (_proj.x * 0.5 + 0.5) * window.innerWidth;
       anchors[id].y = (-_proj.y * 0.5 + 0.5) * window.innerHeight;
@@ -626,6 +647,7 @@ export function createAquarium(container, opts = {}) {
           st.inner = prep.inner;
           st.mats = prep.mats;
           st.norm = 1 / (prep.height || 1);
+          st.size.copy(prep.size);
           // animation: idle by default, blend to swim while travelling
           if (prep.animations.length) {
             st.mixer = new THREE.AnimationMixer(prep.animRoot);
