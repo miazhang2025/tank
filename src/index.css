@@ -12,19 +12,26 @@
   --c-cream: #fdf5e7;
   --c-ink: #535353; /* body / dialogue / cloud text */
 
-  /* ---- frosted glass: identical material to the sidebar, reused by every
-     bubble / cloud / CTA (transparent backdrop, solid text on top) ---- */
+  /* ---- frosted glass: the sidebar's frosted-glass *material* (blur + rim),
+     but light-tinted so dark UI text reads crisply on top (a dark teal tint
+     over dark text reads as "submerged"). Reused by every bubble / cloud / CTA. */
   --glass-bg: linear-gradient(
     160deg,
-    rgba(46, 82, 92, 0.42) 0%,
-    rgba(66, 116, 130, 0.22) 48%,
-    rgba(160, 215, 228, 0.06) 100%
+    rgba(232, 244, 245, 0.36) 0%,
+    rgba(203, 231, 235, 0.24) 55%,
+    rgba(183, 219, 226, 0.14) 100%
+  );
+  /* slightly more present variant for long-form reading panels (content clouds) */
+  --glass-bg-solid: linear-gradient(
+    160deg,
+    rgba(234, 245, 246, 0.52) 0%,
+    rgba(206, 232, 236, 0.4) 55%,
+    rgba(188, 222, 228, 0.34) 100%
   );
   --glass-blur: blur(6px) saturate(112%) brightness(1.03);
-  --glass-rim: rgba(255, 255, 255, 0.5);
-  /* light halo so solid dark text stays legible on the transparent glass */
-  --text-halo: 0 0 4px rgba(255, 255, 255, 0.95), 0 0 11px rgba(255, 255, 255, 0.7),
-    0 1px 2px rgba(255, 255, 255, 0.9);
+  --glass-rim: rgba(255, 255, 255, 0.6);
+  /* light halo so the solid dark text stays legible on the transparent glass */
+  --text-halo: 0 0 5px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(255, 255, 255, 0.75);
 }
 html,
 body {
@@ -107,51 +114,66 @@ canvas {
   pointer-events: none;
 }
 .cbubble {
-  /* fixed width / auto height; organic blob silhouette from conversation
-     bubble.svg, filled with the exact sidebar glass material. Padding is wide
-     so the narrowing blob edges never clip the text. */
+  /* fixed width / auto height. The glass + blob silhouette live on ::before, so
+     the mask shape never touches the text — the text is always 100% opacity. */
+  position: relative;
+  isolation: isolate;
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
   font-size: clamp(12px, 1.04vw, 15px);
   line-height: 1.5;
-  color: var(--c-ink); /* solid text on transparent glass */
+  color: var(--c-ink); /* solid, full-opacity text */
   text-shadow: var(--text-halo);
   padding: 22px 42px;
   white-space: pre-line;
-  background: var(--glass-bg);
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  -webkit-mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
-  mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
-  /* white rim (follows the blob) + soft drop for glass depth */
-  filter: drop-shadow(0 0 0.7px var(--glass-rim))
-    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+  --tint: transparent;
   will-change: transform, opacity;
 }
-/* speaker identity kept as a faint tint over the sidebar glass */
+.cbubble::before {
+  content: "";
+  position: absolute;
+  inset: -7px -22px; /* blob extends past the text box so edges never clip text */
+  z-index: -1; /* glass sits behind the unmasked text */
+  background: linear-gradient(var(--tint), var(--tint)), var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  -webkit-mask: url("/UI/conversation-mask.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/conversation-mask.svg") no-repeat center / 100% 100%;
+  filter: drop-shadow(0 0 0.7px var(--glass-rim))
+    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+}
+/* speaker identity = faint tint over the sidebar glass */
 .cbubble.axolotl {
-  background: linear-gradient(rgba(241, 134, 175, 0.16), rgba(241, 134, 175, 0.16)), var(--glass-bg);
+  --tint: rgba(241, 134, 175, 0.18);
   text-align: left;
 }
 .cbubble.octopus {
-  background: linear-gradient(rgba(217, 78, 59, 0.15), rgba(217, 78, 59, 0.15)), var(--glass-bg);
+  --tint: rgba(217, 78, 59, 0.16);
   text-align: right;
 }
 
 /* ---------- content cloud (frosted thought bubble) ---------- */
 .content-cloud {
   position: absolute;
+  isolation: isolate;
   pointer-events: auto;
-  -webkit-mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
-  mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
-  /* exact sidebar glass material (transparent backdrop, solid text on top) */
-  background: var(--glass-bg);
+  will-change: transform, opacity;
+}
+.content-cloud::before {
+  /* solid frosted reading panel on its own layer; the text (.cloud-inner) is
+     never masked, so it stays 100% opacity. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  -webkit-mask: url("/UI/content-mask.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/content-mask.svg") no-repeat center / 100% 100%;
+  background: var(--glass-bg-solid);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   filter: drop-shadow(0 0 0.8px var(--glass-rim))
     drop-shadow(0 10px 30px rgba(8, 30, 36, 0.24));
-  will-change: transform, opacity;
 }
 .cloud-inner {
   position: absolute;
@@ -165,7 +187,7 @@ canvas {
   font-weight: 300; /* Darker Grotesque, lightest */
   font-size: clamp(30px, 3.9vw, 56px);
   line-height: 1;
-  color: var(--c-ink);
+  color: #2c2c2c; /* solid, full opacity */
   text-shadow: var(--text-halo);
   margin: 0 0 0.4em;
 }
@@ -173,14 +195,17 @@ canvas {
   font-family: var(--serif);
   font-size: clamp(14px, 1.18vw, 19px);
   line-height: 1.5;
-  color: var(--c-ink);
+  color: #303030; /* solid, full opacity */
   text-shadow: var(--text-halo);
 }
 .cloud-body p {
   margin: 0 0 0.8em;
 }
 .cloud-button {
-  /* CTA uses the conversation-bubble blob + the same sidebar glass material */
+  /* CTA uses the conversation-bubble blob + sidebar glass on ::before; the
+     label is never masked (100% opacity). */
+  position: relative;
+  isolation: isolate;
   align-self: center;
   margin-top: 1.1em;
   font-family: var(--mono);
@@ -190,14 +215,20 @@ canvas {
   text-shadow: var(--text-halo);
   text-decoration: none;
   padding: 20px 52px; /* enough padding inside the blob */
+  transition: transform 0.25s ease;
+}
+.cloud-button::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
   background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  -webkit-mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
-  mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
+  -webkit-mask: url("/UI/conversation-mask.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/conversation-mask.svg") no-repeat center / 100% 100%;
   filter: drop-shadow(0 0 0.7px var(--glass-rim))
     drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
-  transition: transform 0.25s ease;
 }
 .cloud-button:hover {
   transform: scale(1.05);
@@ -268,11 +299,14 @@ canvas {
   .stage .content-cloud {
     left: 4vw !important;
     right: 4vw;
+    margin-left: 0 !important;
     top: 9vh !important;
     width: auto !important;
     height: min(74vh, 660px) !important;
-    -webkit-mask-image: url("/UI/content bubble-mobile.svg");
-    mask-image: url("/UI/content bubble-mobile.svg");
+  }
+  .stage .content-cloud::before {
+    -webkit-mask-image: url("/UI/content-mobile-mask.svg");
+    mask-image: url("/UI/content-mobile-mask.svg");
   }
   .cloud-inner {
     inset: 12% 11% 16% 11%;

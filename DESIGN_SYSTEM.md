@@ -65,27 +65,47 @@ caustic-lit `#2E9A82`, warm window light `#FFE6C2`.
 
 ## 3. Glass material (one material, everywhere)
 
-The sidebar's frosted glass is the single surface treatment for **every** floating
-element: conversation bubbles, content clouds, and CTA buttons. Transparent
-backdrop, solid `--c-ink` text on top.
+The sidebar's frosted-glass *material* (blur + rim) is the single surface treatment
+for **every** floating element: conversation bubbles, content clouds, CTA buttons.
+The tint is **light** (not the sidebar's dark teal) so dark UI text reads crisply on
+top instead of looking submerged. Content clouds use the more opaque `-solid`
+variant for long-form reading.
 
 ```css
---glass-bg: linear-gradient(160deg,
-  rgba(46,82,92,0.42) 0%,
-  rgba(66,116,130,0.22) 48%,
-  rgba(160,215,228,0.06) 100%);
+--glass-bg: linear-gradient(160deg,            /* bubbles / CTAs (transparent) */
+  rgba(232,244,245,0.36) 0%,
+  rgba(203,231,235,0.24) 55%,
+  rgba(183,219,226,0.14) 100%);
+--glass-bg-solid: linear-gradient(160deg,      /* content clouds (a touch more present) */
+  rgba(234,245,246,0.52) 0%,
+  rgba(206,232,236,0.40) 55%,
+  rgba(188,222,228,0.34) 100%);
 --glass-blur: blur(6px) saturate(112%) brightness(1.03);  /* backdrop-filter */
---glass-rim: rgba(255,255,255,0.5);                        /* white edge */
+--glass-rim: rgba(255,255,255,0.6);                        /* white edge */
+--text-halo: 0 0 5px rgba(255,255,255,0.85), 0 1px 2px rgba(255,255,255,0.75);
 ```
 
-Recipe for a glass surface:
-1. `background: var(--glass-bg)` (+ optional faint speaker tint layered on top).
-2. `backdrop-filter: var(--glass-blur)`.
-3. Silhouette via SVG `mask` — `conversation bubble.svg` for bubbles/CTAs,
-   `content bubble.svg` / `content bubble-mobile.svg` for clouds.
-4. Rim + depth via `filter: drop-shadow(0 0 .7px var(--glass-rim)) drop-shadow(0 5px 15px rgba(8,30,36,.2))`
-   (box-shadow can't follow a mask, so the rim is a drop-shadow).
-5. Generous padding so the narrowing mask never clips text.
+The glass is **transparent like the sidebar**; the masked `::before` extends slightly
+past the text box (`inset: -7px -22px` on bubbles) so the blob always encloses the text.
+
+Text: section/cloud copy is solid dark (`#2c2c2c`–`#303030` on clouds, `--c-ink`
+`#535353` on dialogue) — no transparency.
+
+Recipe for a glass surface — **the mask goes on a `::before`, never on the text**:
+1. The element holds the **text only** (solid, 100% opacity) + `isolation: isolate`.
+2. A `::before` (`position:absolute; inset:0; z-index:-1`) holds the glass:
+   `background: var(--glass-bg)` (+ faint speaker tint via `--tint`),
+   `backdrop-filter: var(--glass-blur)`, the SVG `mask`, and the rim
+   `filter: drop-shadow(0 0 .7px var(--glass-rim)) drop-shadow(0 5px 15px rgba(8,30,36,.2))`.
+3. **Use the solid-fill mask SVGs** (`conversation-mask.svg`, `content-mask.svg`,
+   `content-mobile-mask.svg`) — the original `* bubble.svg` art has partial/gradient
+   alpha which, used as a mask, would make the masked layer (and ever text on it)
+   semi-transparent. Masks only ever apply to the `::before`.
+4. Generous padding so the narrowing blob never crowds the text.
+
+> ⚠️ Never put `mask`, `opacity`, or partial-alpha backgrounds on an element that
+> also contains text — the alpha multiplies into the glyphs. Keep text and masked
+> glass on separate layers.
 
 All glass sits on the **UI layer** (z-index 8, the sidebar/menu band).
 
