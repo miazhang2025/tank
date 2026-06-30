@@ -1,0 +1,561 @@
+:root {
+  /* ---- type families ---- */
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; /* dialogue / buttons */
+  --display: "Darker Grotesque", "Helvetica Neue", Arial, sans-serif; /* headings */
+  --serif: "Crimson Text", Georgia, "Times New Roman", serif; /* long-form body */
+
+  /* ---- brand palette (from swatch) ---- */
+  --c-blue: #a7d8e5;
+  --c-teal: #6fafad;
+  --c-pink: #f186af; /* axolotl bubbles */
+  --c-red: #d94e3b; /* octopus bubbles + headings */
+  --c-cream: #fdf5e7;
+  --c-ink: #535353; /* body / dialogue / cloud text */
+
+  /* ---- frosted glass (shared by sidebar + bubbles) ---- */
+  --glass-blur: blur(6px) saturate(112%) brightness(1.03);
+  --glass-rim: rgba(255, 255, 255, 0.5);
+  --glass-tint: rgba(46, 82, 92, 0.42); /* neutral sidebar tint */
+  --bubble-alpha: 0.3; /* tint opacity over the glass, per spec */
+}
+html,
+body {
+  margin: 0;
+  background: #0a2c2e;
+  overflow-x: hidden;
+}
+/* #root is in normal flow so the scroll spacer can create page height */
+#root {
+  position: relative;
+}
+.app {
+  position: fixed;
+  inset: 0;
+  z-index: 0; /* the WebGL tank sits behind everything */
+}
+canvas {
+  display: block;
+}
+
+/* ---------- scroll spacer + fixed content stage ---------- */
+.scroll-spacer {
+  position: relative;
+  width: 100%;
+  z-index: 0;
+  pointer-events: none;
+}
+.stage {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none; /* layers/children opt back in where interactive */
+}
+.section-layer {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  visibility: hidden;
+  will-change: opacity;
+}
+.wordmark {
+  position: fixed;
+  top: 3vh;
+  left: 3vw;
+  z-index: 8;
+  font-family: var(--mono);
+  font-weight: 500;
+  font-size: clamp(13px, 1.5vw, 18px);
+  letter-spacing: 0.16em;
+  color: #eafaf6;
+  text-shadow: 0 1px 12px rgba(6, 28, 34, 0.6);
+  pointer-events: none;
+  user-select: none;
+}
+.section-title {
+  position: absolute;
+  top: 9vh;
+  left: 3vw;
+  margin: 0;
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(48px, 7.6vw, 112px);
+  line-height: 0.9;
+  letter-spacing: 0.002em;
+  color: var(--c-red);
+  text-shadow: 0 2px 24px rgba(8, 30, 36, 0.28);
+}
+
+/* ---------- conversation bubbles (chat above each creature) ---------- */
+/* A "stack" is one speaker's column, anchored above its creature's head; JS
+   sets its transform each frame to follow the swimming animal. */
+.cstack {
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: var(--cbubble-w, clamp(220px, 23vw, 300px));
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  pointer-events: none;
+}
+.cbubble {
+  /* fixed width / auto height per spec; the organic blob silhouette comes from
+     conversation bubble.svg used as a mask, filled with glass + speaker tint */
+  width: 100%;
+  box-sizing: border-box;
+  font-family: var(--mono);
+  font-size: clamp(12px, 1.04vw, 15px);
+  line-height: 1.5;
+  color: var(--c-ink);
+  padding: 16px 26px;
+  white-space: pre-line;
+  /* brighter glass so the blurred background lightens and the dark text reads */
+  -webkit-backdrop-filter: blur(7px) saturate(116%) brightness(1.16);
+  backdrop-filter: blur(7px) saturate(116%) brightness(1.16);
+  -webkit-mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
+  /* white edge (rim, follows the blob silhouette) + soft drop for glass depth */
+  filter: drop-shadow(0 0 0.7px rgba(255, 255, 255, 0.85))
+    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+  will-change: transform, opacity;
+}
+.cbubble.axolotl {
+  background: rgba(241, 134, 175, 0.46); /* brand pink over glass */
+  text-align: left;
+}
+.cbubble.octopus {
+  background: rgba(217, 78, 59, 0.44); /* brand red over glass */
+  text-align: right;
+}
+
+/* ---------- content cloud (frosted thought bubble) ---------- */
+.content-cloud {
+  position: absolute;
+  pointer-events: auto;
+  -webkit-mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
+  /* same frosted material as the sidebar, a touch more opaque so the #535353
+     text reads clearly (was too transparent) */
+  background: linear-gradient(
+    160deg,
+    rgba(234, 244, 244, 0.86) 0%,
+    rgba(198, 230, 235, 0.78) 55%,
+    rgba(160, 210, 218, 0.7) 100%
+  );
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  filter: drop-shadow(0 0 0.8px rgba(255, 255, 255, 0.8))
+    drop-shadow(0 10px 30px rgba(8, 30, 36, 0.24));
+  will-change: transform, opacity;
+}
+.cloud-inner {
+  position: absolute;
+  inset: 13% 14% 20% 15%; /* keep content inside the cloud body (svg tail is bottom-left) */
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.cloud-heading {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: clamp(28px, 3.6vw, 50px);
+  line-height: 1;
+  color: var(--c-ink);
+  margin: 0 0 0.5em;
+}
+.cloud-body {
+  font-family: var(--serif);
+  font-size: clamp(14px, 1.18vw, 19px);
+  line-height: 1.5;
+  color: var(--c-ink);
+}
+.cloud-body p {
+  margin: 0 0 0.8em;
+}
+.cloud-button {
+  align-self: center;
+  margin-top: 1.4em;
+  font-family: var(--mono);
+  font-size: clamp(12px, 1.05vw, 15px);
+  letter-spacing: 0.02em;
+  color: var(--c-ink);
+  text-decoration: none;
+  padding: 10px 26px;
+  border-radius: 24px;
+  background: rgba(217, 78, 59, 0.28);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow:
+    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
+    0 6px 18px rgba(8, 30, 36, 0.18);
+  transition: transform 0.25s ease, background 0.25s ease;
+}
+.cloud-button:hover {
+  transform: scale(1.04);
+  background: rgba(217, 78, 59, 0.42);
+}
+
+/* per-section cloud placement (tuned to the mockups; refined in Phase 5) */
+.section-layer[data-section="about"] .content-cloud {
+  left: -3vw;
+  top: 40vh;
+  width: min(28vw, 380px);
+  height: min(42vh, 420px);
+}
+.section-layer[data-section="cassette-jury"] .content-cloud {
+  right: -3vw;
+  top: 8vh;
+  width: min(46vw, 660px);
+  height: min(82vh, 760px);
+}
+.section-layer[data-section="santa-beer"] .content-cloud {
+  left: 26vw;
+  top: 7vh;
+  width: min(48vw, 680px);
+  height: min(86vh, 800px);
+}
+.section-layer[data-section="flaneur"] .content-cloud {
+  left: 24vw;
+  top: 9vh;
+  width: min(50vw, 700px);
+  height: min(82vh, 780px);
+}
+
+/* ---------- mobile: single-column chat + full-width clouds ---------- */
+@media (max-width: 768px) {
+  .section-title {
+    top: 7vh;
+    font-size: clamp(38px, 13vw, 64px);
+  }
+  .wordmark {
+    font-size: 12px;
+  }
+
+  /* iMessage-style chat column, anchored above the creatures, grows upward */
+  .cchat {
+    position: absolute;
+    left: 5vw;
+    right: 5vw;
+    bottom: 26vh;
+    display: flex;
+    flex-direction: column;
+    gap: 11px;
+    pointer-events: none;
+  }
+  .cchat .cbubble {
+    width: auto;
+    max-width: 78%;
+    font-size: 13px;
+  }
+  .cchat .cbubble.axolotl {
+    align-self: flex-start;
+  }
+  .cchat .cbubble.octopus {
+    align-self: flex-end;
+  }
+
+  /* clouds go full-width using the portrait mobile silhouette */
+  .stage .content-cloud {
+    left: 4vw !important;
+    right: 4vw;
+    top: 9vh !important;
+    width: auto !important;
+    height: min(74vh, 660px) !important;
+    -webkit-mask-image: url("/UI/content bubble-mobile.svg");
+    mask-image: url("/UI/content bubble-mobile.svg");
+  }
+  .cloud-inner {
+    inset: 12% 11% 16% 11%;
+  }
+}
+
+.ui {
+  position: fixed;
+  left: 18px;
+  bottom: 16px;
+  z-index: 10;
+  color: #e7f6f2;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  pointer-events: none;
+  user-select: none;
+}
+.ui .t {
+  opacity: 0.85;
+}
+.ui .h {
+  opacity: 0.5;
+  margin-top: 4px;
+}
+.hint {
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 10;
+  color: #f0fbf6;
+  font-family: var(--mono);
+  font-size: 13px;
+  letter-spacing: 0.06em;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.55);
+  pointer-events: none;
+  transition: opacity 1.2s ease;
+  opacity: 0.9;
+}
+.hint.is-hidden {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: reduce) {
+  .hint {
+    display: none;
+  }
+}
+
+/* ---------- loading overlay (rising bubbles) ---------- */
+.loader {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  background:
+    radial-gradient(120% 90% at 30% 18%, #1b5a59 0%, #0c3537 45%, #07262a 100%);
+  transition: opacity 1s ease;
+}
+.loader.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+.loader-bubbles {
+  position: absolute;
+  inset: 0;
+}
+.loader-bubbles span {
+  position: absolute;
+  bottom: -8vh;
+  width: var(--sz);
+  height: var(--sz);
+  border-radius: 50%;
+  background: radial-gradient(
+    circle at 35% 30%,
+    rgba(255, 255, 255, 0.92),
+    rgba(213, 240, 240, 0.22) 42%,
+    rgba(213, 240, 240, 0) 70%
+  );
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+  animation: loader-rise var(--dur) linear var(--delay) infinite;
+  will-change: transform, opacity;
+}
+@keyframes loader-rise {
+  0% {
+    transform: translate(0, 0) scale(0.8);
+    opacity: 0;
+  }
+  12% {
+    opacity: 0.9;
+  }
+  85% {
+    opacity: 0.85;
+  }
+  100% {
+    transform: translate(var(--drift), -112vh) scale(1.05);
+    opacity: 0;
+  }
+}
+.loader-brand {
+  position: relative;
+  text-align: center;
+  color: #eafaf6;
+  text-shadow: 0 2px 20px rgba(0, 0, 0, 0.45);
+  user-select: none;
+}
+.loader-word {
+  font-family: var(--display);
+  font-weight: 800;
+  font-size: clamp(52px, 12vw, 140px);
+  letter-spacing: 0.04em;
+  line-height: 0.9;
+}
+.loader-sub {
+  font-family: var(--mono);
+  font-size: clamp(11px, 1.4vw, 15px);
+  letter-spacing: 0.42em;
+  opacity: 0.72;
+  margin-top: 0.4em;
+  padding-left: 0.42em;
+}
+.loader-load {
+  font-family: var(--mono);
+  font-size: clamp(10px, 1.1vw, 12px);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  opacity: 0.5;
+  margin-top: 1.6em;
+  animation: loader-pulse 1.8s ease-in-out infinite;
+}
+@keyframes loader-pulse {
+  0%, 100% { opacity: 0.28; }
+  50% { opacity: 0.6; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .loader-bubbles span { animation-duration: 0.001s; opacity: 0; }
+  .loader-load { animation: none; }
+}
+
+/* frosted-glass sidebar (shape masked from the brand blob vector) */
+.sidebar,
+.sidebar-rim {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 46vh;
+  z-index: 7;
+  pointer-events: none;
+}
+.sidebar {
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  background: linear-gradient(
+    270deg,
+    rgba(46, 82, 92, 0.42) 0%,
+    rgba(66, 116, 130, 0.22) 48%,
+    rgba(160, 215, 228, 0.04) 100%
+  );
+  -webkit-backdrop-filter: blur(6px) saturate(112%) brightness(1.03);
+  backdrop-filter: blur(6px) saturate(112%) brightness(1.03);
+}
+.sidebar-rim {
+  z-index: 9;
+  background-size: 100% 100%;
+  background-repeat: no-repeat;
+  opacity: 0.7;
+}
+.sidebar-refract {
+  position: fixed;
+  top: 0;
+  right: 0;
+  height: 100vh;
+  width: 46vh;
+  z-index: 6;
+  pointer-events: none;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
+  backdrop-filter: url(#glassWarp);
+}
+.menu {
+  position: fixed;
+  z-index: 11;
+  top: 18vh;
+  right: 3vh;
+  width: 22vh;
+  pointer-events: none;
+}
+.menu a {
+  display: block;
+  pointer-events: auto;
+  text-decoration: none;
+  color: #f4fbff;
+  font-family: var(--mono);
+  font-weight: 400;
+  text-transform: uppercase;
+  font-size: clamp(12px, 1.55vh, 19px);
+  letter-spacing: 0.18em;
+  padding: 0.62em 0;
+  opacity: 0.9;
+  transition: opacity 0.25s ease, letter-spacing 0.25s ease;
+  text-shadow: 0 1px 12px rgba(6, 28, 34, 0.6);
+  white-space: nowrap;
+}
+.menu a:hover {
+  opacity: 1;
+  letter-spacing: 0.27em;
+}
+
+/* open / close */
+.sidebar,
+.sidebar-refract,
+.sidebar-rim,
+.menu {
+  transition: transform 0.5s cubic-bezier(0.22, 0.61, 0.36, 1);
+  will-change: transform;
+}
+body:not(.nav-open) .sidebar,
+body:not(.nav-open) .sidebar-refract,
+body:not(.nav-open) .sidebar-rim,
+body:not(.nav-open) .menu {
+  transform: translateX(112%);
+}
+
+.nav-toggle {
+  position: fixed;
+  z-index: 12;
+  top: 3vh;
+  right: 3vh;
+  width: 54px;
+  height: 54px;
+  border: none;
+  padding: 0;
+  border-radius: 50%;
+  cursor: pointer;
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(200deg, rgba(228, 233, 236, 0.34), rgba(177, 241, 255, 0.08));
+  -webkit-backdrop-filter: blur(6px) saturate(115%);
+  backdrop-filter: blur(6px) saturate(115%);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 3px 14px rgba(8, 30, 36, 0.28);
+  transition: transform 0.3s ease;
+}
+.nav-toggle:hover {
+  transform: scale(1.06);
+}
+.nav-toggle .bar,
+.nav-toggle .bar::before,
+.nav-toggle .bar::after {
+  width: 20px;
+  height: 2px;
+  border-radius: 2px;
+  background: #f4fbff;
+}
+.nav-toggle .bar {
+  position: relative;
+  transition: background 0.3s ease;
+}
+.nav-toggle .bar::before,
+.nav-toggle .bar::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  transition: transform 0.3s ease, top 0.3s ease;
+}
+.nav-toggle .bar::before {
+  top: -6px;
+}
+.nav-toggle .bar::after {
+  top: 6px;
+}
+body.nav-open .nav-toggle .bar {
+  background: transparent;
+}
+body.nav-open .nav-toggle .bar::before {
+  top: 0;
+  transform: rotate(45deg);
+}
+body.nav-open .nav-toggle .bar::after {
+  top: 0;
+  transform: rotate(-45deg);
+}
