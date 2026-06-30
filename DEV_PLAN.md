@@ -123,6 +123,20 @@ Framework is **data-driven**. After scaffolding, drop text into `src/content/sec
 - Fish school pulled closer/bigger (`cz −8.5…−0.4`, `s 1.3…2.5`), still capped behind the focal plane.
 - Headings use Darker Grotesque **800** (loader/section) / **700** (cloud); added 800/900 to the font request.
 
+## Revisions — round 2 (UI/material pass)
+- All bubbles, content clouds, and CTA buttons now share the **exact sidebar glass
+  material** (`--glass-bg` + `--glass-blur`), transparent backdrop, solid `#535353`
+  text with a white legibility halo (`--text-halo`); moved to the **UI layer** (z 8).
+- CTA buttons use the `conversation bubble.svg` blob shape with wide padding.
+- Increased bubble padding + cloud inset so masks never clip text.
+- Animals re-staged more centred/symmetric; santa-beer & flaneur clouds **centred**
+  with the two animals flanking them; about & cassette clouds pulled on-screen/centre.
+- Titles + section/cloud headings → Darker Grotesque **300 (lightest)**.
+- Added **[DESIGN_SYSTEM.md](DESIGN_SYSTEM.md)** (typography + colour + glass tokens).
+- Note: the sidebar material is genuinely transparent, so over the (now closer) fish
+  the glass reads very airy; the text halo keeps copy legible. Dial `--glass-bg`
+  alpha up if you want the panels more solid.
+
 ## E. How to feed in your content (after framework)
 - **Dialogue / copy:** edit `src/content/sections.js` (each section's `chat[]`, `content.heading/body/button`). Width is fixed, height auto — just write text.
 - **Models:** drop GLBs in `public/models/` (current: `axolotl.glb`, `octopus.glb`, fish `red.glb` + `white fish.glb`). Creature front-facing yaws live in `createAquarium.js` (axolotl π/4, octopus 3π/4) — re-tune via `?ay=&oy=` if you swap models.

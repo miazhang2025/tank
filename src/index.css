@@ -12,11 +12,19 @@
   --c-cream: #fdf5e7;
   --c-ink: #535353; /* body / dialogue / cloud text */
 
-  /* ---- frosted glass (shared by sidebar + bubbles) ---- */
+  /* ---- frosted glass: identical material to the sidebar, reused by every
+     bubble / cloud / CTA (transparent backdrop, solid text on top) ---- */
+  --glass-bg: linear-gradient(
+    160deg,
+    rgba(46, 82, 92, 0.42) 0%,
+    rgba(66, 116, 130, 0.22) 48%,
+    rgba(160, 215, 228, 0.06) 100%
+  );
   --glass-blur: blur(6px) saturate(112%) brightness(1.03);
   --glass-rim: rgba(255, 255, 255, 0.5);
-  --glass-tint: rgba(46, 82, 92, 0.42); /* neutral sidebar tint */
-  --bubble-alpha: 0.3; /* tint opacity over the glass, per spec */
+  /* light halo so solid dark text stays legible on the transparent glass */
+  --text-halo: 0 0 4px rgba(255, 255, 255, 0.95), 0 0 11px rgba(255, 255, 255, 0.7),
+    0 1px 2px rgba(255, 255, 255, 0.9);
 }
 html,
 body {
@@ -47,7 +55,7 @@ canvas {
 .stage {
   position: fixed;
   inset: 0;
-  z-index: 5;
+  z-index: 8; /* UI layer — same band as the sidebar / menu button */
   pointer-events: none; /* layers/children opt back in where interactive */
 }
 .section-layer {
@@ -77,10 +85,10 @@ canvas {
   left: 3vw;
   margin: 0;
   font-family: var(--display);
-  font-weight: 800;
-  font-size: clamp(48px, 7.6vw, 112px);
+  font-weight: 300; /* Darker Grotesque, lightest */
+  font-size: clamp(52px, 8.4vw, 124px);
   line-height: 0.9;
-  letter-spacing: 0.002em;
+  letter-spacing: 0.004em;
   color: var(--c-red);
   text-shadow: 0 2px 24px rgba(8, 30, 36, 0.28);
 }
@@ -99,32 +107,35 @@ canvas {
   pointer-events: none;
 }
 .cbubble {
-  /* fixed width / auto height per spec; the organic blob silhouette comes from
-     conversation bubble.svg used as a mask, filled with glass + speaker tint */
+  /* fixed width / auto height; organic blob silhouette from conversation
+     bubble.svg, filled with the exact sidebar glass material. Padding is wide
+     so the narrowing blob edges never clip the text. */
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
   font-size: clamp(12px, 1.04vw, 15px);
   line-height: 1.5;
-  color: var(--c-ink);
-  padding: 16px 26px;
+  color: var(--c-ink); /* solid text on transparent glass */
+  text-shadow: var(--text-halo);
+  padding: 22px 42px;
   white-space: pre-line;
-  /* brighter glass so the blurred background lightens and the dark text reads */
-  -webkit-backdrop-filter: blur(7px) saturate(116%) brightness(1.16);
-  backdrop-filter: blur(7px) saturate(116%) brightness(1.16);
+  background: var(--glass-bg);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
   -webkit-mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
   mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
-  /* white edge (rim, follows the blob silhouette) + soft drop for glass depth */
-  filter: drop-shadow(0 0 0.7px rgba(255, 255, 255, 0.85))
+  /* white rim (follows the blob) + soft drop for glass depth */
+  filter: drop-shadow(0 0 0.7px var(--glass-rim))
     drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
   will-change: transform, opacity;
 }
+/* speaker identity kept as a faint tint over the sidebar glass */
 .cbubble.axolotl {
-  background: rgba(241, 134, 175, 0.46); /* brand pink over glass */
+  background: linear-gradient(rgba(241, 134, 175, 0.16), rgba(241, 134, 175, 0.16)), var(--glass-bg);
   text-align: left;
 }
 .cbubble.octopus {
-  background: rgba(217, 78, 59, 0.44); /* brand red over glass */
+  background: linear-gradient(rgba(217, 78, 59, 0.15), rgba(217, 78, 59, 0.15)), var(--glass-bg);
   text-align: right;
 }
 
@@ -134,89 +145,88 @@ canvas {
   pointer-events: auto;
   -webkit-mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
   mask: url("/UI/content bubble.svg") no-repeat center / 100% 100%;
-  /* same frosted material as the sidebar, a touch more opaque so the #535353
-     text reads clearly (was too transparent) */
-  background: linear-gradient(
-    160deg,
-    rgba(234, 244, 244, 0.86) 0%,
-    rgba(198, 230, 235, 0.78) 55%,
-    rgba(160, 210, 218, 0.7) 100%
-  );
+  /* exact sidebar glass material (transparent backdrop, solid text on top) */
+  background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  filter: drop-shadow(0 0 0.8px rgba(255, 255, 255, 0.8))
+  filter: drop-shadow(0 0 0.8px var(--glass-rim))
     drop-shadow(0 10px 30px rgba(8, 30, 36, 0.24));
   will-change: transform, opacity;
 }
 .cloud-inner {
   position: absolute;
-  inset: 13% 14% 20% 15%; /* keep content inside the cloud body (svg tail is bottom-left) */
+  inset: 17% 17% 24% 18%; /* generous so text never hits the cloud's bumps/tail */
   display: flex;
   flex-direction: column;
   justify-content: center;
 }
 .cloud-heading {
   font-family: var(--display);
-  font-weight: 700;
-  font-size: clamp(28px, 3.6vw, 50px);
+  font-weight: 300; /* Darker Grotesque, lightest */
+  font-size: clamp(30px, 3.9vw, 56px);
   line-height: 1;
   color: var(--c-ink);
-  margin: 0 0 0.5em;
+  text-shadow: var(--text-halo);
+  margin: 0 0 0.4em;
 }
 .cloud-body {
   font-family: var(--serif);
   font-size: clamp(14px, 1.18vw, 19px);
   line-height: 1.5;
   color: var(--c-ink);
+  text-shadow: var(--text-halo);
 }
 .cloud-body p {
   margin: 0 0 0.8em;
 }
 .cloud-button {
+  /* CTA uses the conversation-bubble blob + the same sidebar glass material */
   align-self: center;
-  margin-top: 1.4em;
+  margin-top: 1.1em;
   font-family: var(--mono);
   font-size: clamp(12px, 1.05vw, 15px);
   letter-spacing: 0.02em;
   color: var(--c-ink);
+  text-shadow: var(--text-halo);
   text-decoration: none;
-  padding: 10px 26px;
-  border-radius: 24px;
-  background: rgba(217, 78, 59, 0.28);
+  padding: 20px 52px; /* enough padding inside the blob */
+  background: var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.5),
-    0 6px 18px rgba(8, 30, 36, 0.18);
-  transition: transform 0.25s ease, background 0.25s ease;
+  -webkit-mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
+  mask: url("/UI/conversation bubble.svg") no-repeat center / 100% 100%;
+  filter: drop-shadow(0 0 0.7px var(--glass-rim))
+    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+  transition: transform 0.25s ease;
 }
 .cloud-button:hover {
-  transform: scale(1.04);
-  background: rgba(217, 78, 59, 0.42);
+  transform: scale(1.05);
 }
 
 /* per-section cloud placement (tuned to the mockups; refined in Phase 5) */
 .section-layer[data-section="about"] .content-cloud {
-  left: -3vw;
-  top: 40vh;
-  width: min(28vw, 380px);
-  height: min(42vh, 420px);
+  left: 4vw; /* on-screen, nearer centre (was clipped off the left) */
+  top: 38vh;
+  width: min(30vw, 400px);
+  height: min(44vh, 440px);
 }
 .section-layer[data-section="cassette-jury"] .content-cloud {
-  right: -3vw;
+  left: 38vw; /* pulled in toward centre */
   top: 8vh;
-  width: min(46vw, 660px);
+  width: min(48vw, 680px);
   height: min(82vh, 760px);
 }
 .section-layer[data-section="santa-beer"] .content-cloud {
-  left: 26vw;
-  top: 7vh;
-  width: min(48vw, 680px);
+  left: 50%; /* centred; the two animals flank it symmetrically */
+  margin-left: calc(min(50vw, 700px) * -0.5);
+  top: 6vh;
+  width: min(50vw, 700px);
   height: min(86vh, 800px);
 }
 .section-layer[data-section="flaneur"] .content-cloud {
-  left: 24vw;
-  top: 9vh;
+  left: 50%; /* centred; the two animals flank it symmetrically */
+  margin-left: calc(min(50vw, 700px) * -0.5);
+  top: 8vh;
   width: min(50vw, 700px);
   height: min(82vh, 780px);
 }
@@ -375,9 +385,9 @@ canvas {
 }
 .loader-word {
   font-family: var(--display);
-  font-weight: 800;
-  font-size: clamp(52px, 12vw, 140px);
-  letter-spacing: 0.04em;
+  font-weight: 300; /* Darker Grotesque, lightest */
+  font-size: clamp(56px, 13vw, 150px);
+  letter-spacing: 0.05em;
   line-height: 0.9;
 }
 .loader-sub {

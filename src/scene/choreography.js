@@ -22,12 +22,14 @@
 export const FOCUS_DIST = 6.0; // shared focal-plane depth (animals + mouse bubbles)
 
 export const STAGE = {
-  'main':          { axolotl: { sx: 0.34, sy: 0.80 }, octopus: { sx: 0.66, sy: 0.82 }, cameraZ: 9.4 },
-  'about':         { axolotl: { sx: 0.40, sy: 0.83 }, octopus: { sx: 0.66, sy: 0.83 }, cameraZ: 9.0 },
-  'cassette-jury': { axolotl: { sx: 0.11, sy: 0.83 }, octopus: { sx: 0.21, sy: 0.85 }, cameraZ: 8.6 },
-  'santa-beer':    { axolotl: { sx: 0.10, sy: 0.82 }, octopus: { sx: 0.90, sy: 0.82 }, cameraZ: 8.2 },
-  'flaneur':       { axolotl: { sx: 0.12, sy: 0.80 }, octopus: { sx: 0.90, sy: 0.82 }, cameraZ: 7.8 },
-  'more':          { axolotl: { sx: 0.30, sy: 0.83 }, octopus: { sx: 0.66, sy: 0.83 }, cameraZ: 7.4 },
+  // sx 0..1 across the screen. Kept more centered (in from the edges); santa-beer
+  // and flaneur flank a centred content cloud symmetrically.
+  'main':          { axolotl: { sx: 0.36, sy: 0.80 }, octopus: { sx: 0.64, sy: 0.82 }, cameraZ: 9.4 },
+  'about':         { axolotl: { sx: 0.40, sy: 0.83 }, octopus: { sx: 0.62, sy: 0.83 }, cameraZ: 9.0 },
+  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.38, sy: 0.85 }, cameraZ: 8.6 },
+  'santa-beer':    { axolotl: { sx: 0.16, sy: 0.82 }, octopus: { sx: 0.84, sy: 0.82 }, cameraZ: 8.2 },
+  'flaneur':       { axolotl: { sx: 0.16, sy: 0.80 }, octopus: { sx: 0.84, sy: 0.82 }, cameraZ: 7.8 },
+  'more':          { axolotl: { sx: 0.36, sy: 0.83 }, octopus: { sx: 0.64, sy: 0.83 }, cameraZ: 7.4 },
 };
 
 /** Section ids in scroll order (mirrors SECTIONS order; used by the scroll rig). */
