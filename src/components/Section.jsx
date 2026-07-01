@@ -37,8 +37,12 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
   const chat = data.chat || [];
   const hasCloud = !!data.content;
+  // 'about' reads as chat-only on mobile — its content cloud is skipped there
+  // and the conversation bubbles take its place.
+  const cloudOnMobile = hasCloud && data.id !== 'about';
   const desktopChat = !mobile;
-  const mobileChat = mobile && !hasCloud;
+  const mobileChat = mobile && (!hasCloud || data.id === 'about');
+  const showCloud = hasCloud && (desktopChat || cloudOnMobile);
 
   // unified loop while near-active: follow the creatures (desktop) + reveal
   // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
@@ -47,7 +51,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     const root = rootRef.current;
     if (!root) return undefined;
 
-    const GAP = 14; // must match .cstack / .cchat `gap`
+    const GAP = mobile ? 16 : 18; // must match .cstack / .cchat `gap`
     const m = chat.length;
 
     // The columns that grow: both stacks on desktop, the single chat on mobile.
@@ -153,6 +157,9 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
     let raf = 0;
     let lastStep = 0;
+    let wasActive = false;
+    let enteredAt = 0;
+    const REVEAL_GAP = REDUCE ? 0.35 : 0.85; // pause between successive bubble pop-ups
     const loop = () => {
       if (desktopChat) {
         place(axRef.current, scene.anchors.axolotl);
@@ -160,16 +167,23 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       }
       if (m) {
         const P = progressRef.current;
-        // reveal across the last ~0.7 of the scroll INTO this section
-        const approach = (P - (index - 0.8)) / 0.7;
-        const target = Math.max(0, Math.min(m, Math.round(approach * m)));
-        let r = revealedRef.current;
         const now = performance.now() / 1000;
-        if (target > r && now - lastStep > (REDUCE ? 0.24 : 0.5)) {
+        const active = Math.round(P) === index; // fully snapped/settled into this section
+        if (active && !wasActive) enteredAt = now; // (re)start the pop-up sequence on arrival
+        wasActive = active;
+
+        // Reveals are paced by time-since-arrival (not scroll position) so they
+        // only ever start once fully scrolled in, never mid-transition. Leaving
+        // this section (scrolled elsewhere) collapses everything again.
+        const target = active
+          ? Math.max(0, Math.min(m, Math.floor((now - enteredAt) / REVEAL_GAP) + 1))
+          : 0;
+        let r = revealedRef.current;
+        if (target > r && now - lastStep > REVEAL_GAP) {
           revealGi(r); // newest enters at the bottom
           r += 1;
           lastStep = now;
-        } else if (target < r && now - lastStep > (REDUCE ? 0.24 : 0.5)) {
+        } else if (target < r && now - lastStep > REVEAL_GAP) {
           r -= 1;
           hideGi(r); // newest drops off the bottom first
           lastStep = now;
@@ -236,7 +250,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
         </div>
       )}
 
-      {hasCloud && <ContentCloud content={data.content} active={isActive} />}
+      {showCloud && <ContentCloud content={data.content} active={isActive} />}
     </div>
   );
 }

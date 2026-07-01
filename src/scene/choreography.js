@@ -32,6 +32,23 @@ export const STAGE = {
   'more':          { axolotl: { sx: 0.36, sy: 0.83 }, octopus: { sx: 0.64, sy: 0.83 }, cameraZ: 7.4 },
 };
 
+/**
+ * Mobile variant of STAGE. Portrait aspect makes the world-space gap between
+ * two screen fractions much narrower than on desktop (screenToWorld scales
+ * horizontal spread by camera.aspect) — same sx deltas that read fine on
+ * desktop put the two creatures nose-to-nose on a phone. Pushed further
+ * apart here (and nudged in sy) so they keep clear water between them while
+ * still moving section-to-section.
+ */
+export const STAGE_MOBILE = {
+  'main':          { axolotl: { sx: 0.30, sy: 0.78 }, octopus: { sx: 0.66, sy: 0.84 }, cameraZ: 9.4 },
+  'about':         { axolotl: { sx: 0.28, sy: 0.80 }, octopus: { sx: 0.69, sy: 0.85 }, cameraZ: 9.0 },
+  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.71, sy: 0.86 }, cameraZ: 8.6 },
+  'santa-beer':    { axolotl: { sx: 0.24, sy: 0.80 }, octopus: { sx: 0.72, sy: 0.85 }, cameraZ: 8.2 },
+  'flaneur':       { axolotl: { sx: 0.26, sy: 0.78 }, octopus: { sx: 0.71, sy: 0.84 }, cameraZ: 7.8 },
+  'more':          { axolotl: { sx: 0.30, sy: 0.83 }, octopus: { sx: 0.69, sy: 0.85 }, cameraZ: 7.4 },
+};
+
 /** Section ids in scroll order (mirrors SECTIONS order; used by the scroll rig). */
 export const STAGE_ORDER = [
   'main',

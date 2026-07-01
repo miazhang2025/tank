@@ -3,7 +3,7 @@ import gsap from 'gsap';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import Lenis from 'lenis';
 import { SECTIONS, WORDMARK } from '../content/sections.js';
-import { STAGE, STAGE_ORDER } from '../scene/choreography.js';
+import { STAGE, STAGE_MOBILE, STAGE_ORDER } from '../scene/choreography.js';
 import Section from './Section.jsx';
 
 gsap.registerPlugin(ScrollTrigger);
@@ -31,14 +31,17 @@ export default function Stage({ scene, active }) {
   const [mobile, setMobile] = useState(
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 768px)').matches : false,
   );
+  const mobileRef = useRef(mobile); // read inside the scroll loop without re-binding it
 
   // track the mobile breakpoint and refresh ScrollTrigger on layout change
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 768px)');
     const onChange = () => {
+      mobileRef.current = mq.matches;
       setMobile(mq.matches);
       ScrollTrigger.refresh();
     };
+    mobileRef.current = mq.matches;
     mq.addEventListener('change', onChange);
     return () => mq.removeEventListener('change', onChange);
   }, []);
@@ -66,8 +69,9 @@ export default function Stage({ scene, active }) {
       progressRef.current = P;
       const i = Math.min(N - 2, Math.max(0, Math.floor(P)));
       const f = P - i;
-      const a = STAGE[STAGE_ORDER[i]];
-      const b = STAGE[STAGE_ORDER[i + 1]];
+      const stage = mobileRef.current ? STAGE_MOBILE : STAGE;
+      const a = stage[STAGE_ORDER[i]];
+      const b = stage[STAGE_ORDER[i + 1]];
       const c = scene.controls;
       c.cameraZ = lerp(a.cameraZ, b.cameraZ, f);
       c.creatures.axolotl.sx = lerp(a.axolotl.sx, b.axolotl.sx, f);

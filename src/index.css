@@ -25,11 +25,11 @@
   --glass-bg-solid: linear-gradient(
     160deg,
     rgba(234, 245, 246, 0.52) 0%,
-    rgba(206, 232, 236, 0.4) 55%,
+    rgba(206, 232, 236, 0.185) 55%,
     rgba(188, 222, 228, 0.34) 100%
   );
   --glass-blur: blur(6px) saturate(112%) brightness(1.03);
-  --glass-rim: rgba(255, 255, 255, 0.6);
+  --glass-rim: rgba(255, 255, 255, 0.87);
   /* light halo so the solid dark text stays legible on the transparent glass */
   --text-halo: 0 0 5px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(255, 255, 255, 0.75);
 }
@@ -107,10 +107,10 @@ canvas {
   position: absolute;
   left: 0;
   top: 0;
-  width: var(--cbubble-w, clamp(220px, 21vw, 264px));
+  width: var(--cbubble-w, clamp(200px, 18vw, 236px));
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: 18px;
   pointer-events: none;
 }
 .cbubble {
@@ -121,14 +121,14 @@ canvas {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: clamp(12px, 1.04vw, 15px);
+  font-size: clamp(11px, 0.95vw, 14px);
   line-height: 1.5;
   color: var(--c-ink); /* solid, full-opacity text */
   /* text-shadow: var(--text-halo); */
   /* SAME width for every bubble; only the HEIGHT grows with the text.
      horizontal 7.5% each side → text area = 0.85 × bubble width, so long lines
      wrap (never spill past the blob); modest vertical padding keeps it snug. */
-  padding: 14px 7.5%;
+  padding: 12px 7.5%;
   white-space: pre-line;
   text-align: center;
   --tint: transparent;
@@ -155,15 +155,19 @@ canvas {
   /* slice: 12px top/bottom (thin edge) · 95px left/right (the rounded ends) */
   -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
   mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
-  filter: drop-shadow(0 0 0.7px var(--glass-rim))
+  /* crisp rim tracing the bubble silhouette — same strength as .sidebar-rim's
+     1.4px stroke at ~0.5 alpha, built from two tight drop-shadow layers since
+     the shape is a dynamic mask (no separate stroke asset to overlay). */
+  filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.85))
+    drop-shadow(0 0 1.3px rgba(255, 255, 255, 0.5))
     drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
 }
 /* speaker identity = faint tint over the sidebar glass (text stays centered) */
 .cbubble.axolotl {
-  --tint: rgba(241, 134, 175, 0.18);
+  --tint: rgba(231, 149, 181, 0.185);
 }
 .cbubble.octopus {
-  --tint: rgba(217, 78, 59, 0.16);
+  --tint: rgba(240, 102, 84, 0.253);
 }
 
 /* ---------- content cloud (frosted thought bubble) ---------- */
@@ -185,7 +189,7 @@ canvas {
   background: var(--glass-bg-solid);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  filter: drop-shadow(0 0 0.8px var(--glass-rim))
+  filter: drop-shadow(0 0 1px var(--glass-rim))
     drop-shadow(0 10px 30px rgba(8, 30, 36, 0.24));
 }
 .cloud-inner {
@@ -215,12 +219,14 @@ canvas {
   margin: 0 0 0.8em;
 }
 .cloud-button {
-  /* CTA uses the conversation-bubble blob + sidebar glass on ::before; the
-     label is never masked (100% opacity). */
+  /* CTA uses the conversation-bubble blob + sidebar glass on .cloud-button-shape;
+     the label is a separate element so it's never masked (100% opacity) and
+     never distorted by the shape's own hover transform. */
   position: relative;
   isolation: isolate;
   align-self: center;
   margin-top: 1.1em;
+  display: inline-block;
   font-family: var(--mono);
   font-size: clamp(12px, 1.05vw, 15px);
   letter-spacing: 0.02em;
@@ -231,24 +237,28 @@ canvas {
   /* same rules as the chat bubbles: centered label, modest vertical padding,
      generous horizontal room so the text always sits inside the blob */
   padding: 15px 44px;
-  transition: transform 0.25s ease;
+  --tint: rgba(217, 77, 59, 0.432); /* octopus-bubble colour */
+  will-change: transform; /* GSAP owns transform (magnetic pull + scale) */
 }
-.cloud-button::before {
-  /* same 9-sliced bubble image as the chat bubbles */
-  content: "";
+.cloud-button-label {
+  position: relative; /* sits above .cloud-button-shape (z-index: -1) */
+}
+.cloud-button-shape {
+  /* same 9-sliced bubble image + octopus tint as the chat bubbles; a real
+     element (not ::before) so GSAP can distort it independently of the
+     button's own magnetic-pull + scale transform on hover. */
   position: absolute;
   inset: 0;
   z-index: -1;
-  background: var(--glass-bg);
+  transform-origin: center;
+  will-change: transform;
+  background: linear-gradient(var(--tint), var(--tint)), var(--glass-bg);
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
   -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
   mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
   filter: drop-shadow(0 0 0.7px var(--glass-rim))
     drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
-}
-.cloud-button:hover {
-  transform: scale(1.05);
 }
 
 /* per-section cloud placement (tuned to the mockups; refined in Phase 5) */
@@ -257,6 +267,12 @@ canvas {
   top: 38vh;
   width: min(30vw, 400px);
   height: min(44vh, 440px);
+}
+/* About's cloud is the smaller footprint — use the small bubble silhouette
+   instead of the generic (larger-cloud-proportioned) content-mask.svg. */
+.section-layer[data-section="about"] .content-cloud::before {
+  -webkit-mask-image: url("/UI/content bubble-sm.svg");
+  mask-image: url("/UI/content bubble-sm.svg");
 }
 .section-layer[data-section="cassette-jury"] .content-cloud {
   left: 38vw; /* pulled in toward centre */
@@ -297,14 +313,14 @@ canvas {
     bottom: 26vh;
     display: flex;
     flex-direction: column;
-    gap: 11px;
+    gap: 16px;
     pointer-events: none;
   }
   .cchat .cbubble {
     width: auto;
-    max-width: 78%;
-    font-size: 13px;
-    padding: 13px 22px; /* hug-content bubbles: fixed px, not the 7.5% desktop rule */
+    max-width: 74%;
+    font-size: 12px;
+    padding: 11px 18px; /* hug-content bubbles: fixed px, not the 7.5% desktop rule */
   }
   .cchat .cbubble.axolotl {
     align-self: flex-start;
@@ -322,7 +338,10 @@ canvas {
     width: auto !important;
     height: min(74vh, 660px) !important;
   }
-  .stage .content-cloud::before {
+  .stage .content-cloud::before,
+  /* higher specificity than the desktop-only about override above, so mobile
+     still gets the portrait silhouette instead of the small bubble shape */
+  .stage .section-layer[data-section="about"] .content-cloud::before {
     -webkit-mask-image: url("/UI/content-mobile-mask.svg");
     mask-image: url("/UI/content-mobile-mask.svg");
   }

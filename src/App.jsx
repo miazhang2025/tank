@@ -35,8 +35,8 @@ export default function App() {
       <Stage scene={scene} active={active} />
 
       <div className="ui">
-        <div className="t">AQUARIA · tank study</div>
-        <div className="h">move to blow bubbles &nbsp;·&nbsp; click for a burst</div>
+        <div className="t">AQUARIA.TANK</div>
+        <div className="h">We currently do not have an address yet, you can contact Mia at miazhang2025@gmail.com she can help us.</div>
       </div>
 
       <Sidebar scene={scene} />

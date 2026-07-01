@@ -46,8 +46,8 @@ export const SECTIONS = [
       { who: 'axolotl', text: 'A creative studio. We make small weird things. The tank is real.' },
       { who: 'octopus', text: 'What do we make?' },
       { who: 'axolotl', text: 'Brands. Stories. The occasional creature you can poke in a browser.' },
-      { who: 'octopus', text: 'How to work with us?' },
-      { who: 'axolotl', text: 'Knock on the glass.' },
+      // { who: 'octopus', text: 'How to work with us?' },
+      // { who: 'axolotl', text: 'Knock on the glass.' },
     ],
     content: {
       heading: null,
@@ -66,33 +66,36 @@ export const SECTIONS = [
     content: {
       // heading: 'Cassette Jury',
       body:
-        'Cassette Jury is a creative decision-support toy. It is a panel of 11 AI-simulated characters — each with their own job, taste, and agenda — who act as your on-demand jury when you hit a creative deadlock. Submit an open-ended question, watch them deliberate, get a verdict.\n\n' +
+        'Cassette Jury is a pocket jury for your creative decision-making. It is a panel of AI-simulated characters — each with their own job, taste, and agenda — who act as your on-demand jury when you hit a creative deadlock. Submit an open-ended question, watch them deliberate, get a verdict.\n\n' +
         'It is not a serious research tool. It is a delightful, slightly absurd alternative to running user tests or polling colleagues when you have no time or budget to do so. The product sits at the intersection of creative tooling and playful entertainment.',
-      button: { label: 'Talk with the Jury.' },
+      button: { label: 'Talk with the Jury.', href: 'https://cassettejury.farm/' },
     },
   },
 
   {
     id: 'santa-beer',
     title: 'Santa Beer',
-    chat: [],
+    chat: [{ who: 'axolotl', text: 'I like beer.' },
+      { who: 'octopus', text: 'I like santa.' }
+    ],
     content: {
       // heading: 'Santa Beer',
       body:
-        "We were making an ad for a holiday beer — a product that sits at the center of celebration, yet carries awkward cultural baggage: the seasonal guilt of indulgence. People love beer, but it's often framed as something to earn, burn off, or feel guilty about. Instead of avoiding that association, we reversed it.",
-      button: { label: 'Drink Beer' },
+        "A meta-advertisement for beer, told through the lens of an Ozempic-era cultural satire. A fat Santa decides to slim down after getting stuck in a chimney—one year later, he's a new man. But \"cut\" breaks the illusion: it's a commercial shoot. The thin Santa trudges off set, exhausted, only to find the real Santa waiting in the car with a cold beer. \n\nReal Taste, No Acting Required. ",
+      button: { label: 'Drink Beer', href: 'https://miazhang2025.github.io/santabeer/' },
     },
   },
 
   {
     id: 'flaneur',
     title: 'Flaneur',
-    chat: [{ who: 'axolotl', text: 'What is this?' }],
+    chat: [{ who: 'octopus', text: 'What is this?' },
+      { who: 'axolotl', text: 'I hope I can leave water one day.' }],
     content: {
       // heading: 'Flaneur',
       body:
-        'Flâneur is a location-aware iOS app that scores your walk through the city—as you move, it detects your neighborhood and plays music matched to that place\'s cultural and atmospheric identity, never cutting a song off mid-track (the rule is music leads, geography follows). Each neighborhood carries a "sound identity" scored across four weighted dimensions—History, Atmosphere, People, and Time—each mapped to its own Last.fm data source, combined into a seed pool, then filtered through your own listening history. The place-to-music premise rests on Kaminskas & Ricci\'s research on music recommendation for points of interest, which establishes two matching pathways—emotion congruence and POI-semantic matching—that Flâneur engineers into its four-dimension scoring.',
-      button: { label: 'Take a walk' },
+        'Flâneur is an iOS app that plays music as your walk through the city. You walk, it notices the neighborhood,  and plays music matched to that places cultural and atmospheric identity. Every neighborhood has a sound, which we measure across four things: History, Atmosphere, People, and Time. Each neighborhood has a "sound identity", combined into a seed pool, then filtered through your own listening history.  \n\n The city writes its own poem in music.',
+      button: { label: 'Take a walk', href: 'https://flaneur-neon.vercel.app/' },
     },
   },
 
@@ -100,8 +103,8 @@ export const SECTIONS = [
     id: 'more',
     title: "What's More",
     chat: [
-      { who: 'axolotl', text: 'Knock on the glass.' },
       { who: 'octopus', text: 'How to work with us?' },
+      { who: 'axolotl', text: 'Knock on the glass.' },
     ],
     content: null,
   },
