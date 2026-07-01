@@ -16,7 +16,9 @@ const REDUCE =
  *    sections show a single iMessage-style column.
  *
  * Conversation bubbles reveal ONE BY ONE, paced against scroll progress (not all
- * at once) with a squish-deform pop-in; reverse-scroll hides them again.
+ * at once). Like a real chat, each new bubble enters at the BOTTOM (by the
+ * creature's head) and pushes the already-shown bubbles UP as the stack grows;
+ * reverse-scroll drops them off the bottom again.
  *
  * @param {object}  props.scene
  * @param {number}  props.index
@@ -30,7 +32,6 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
   const axRef = useRef(null);
   const ocRef = useRef(null);
   const revealedRef = useRef(0);
-  const lastRevealRef = useRef(0);
   const isActive = activeIndex === index;
   const near = Math.abs(activeIndex - index) <= 1;
 
@@ -40,40 +41,118 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
   const mobileChat = mobile && !hasCloud;
 
   // unified loop while near-active: follow the creatures (desktop) + reveal
-  // bubbles one-by-one as scroll progress approaches this section.
+  // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
   useEffect(() => {
     if (!scene || !near) return undefined;
     const root = rootRef.current;
-    const bubbles = root
-      ? Array.from(root.querySelectorAll('.cbubble')).sort(
-          (a, b) => Number(a.dataset.order) - Number(b.dataset.order),
-        )
-      : [];
-    const m = bubbles.length;
+    if (!root) return undefined;
+
+    const GAP = 14; // must match .cstack / .cchat `gap`
+    const m = chat.length;
+
+    // The columns that grow: both stacks on desktop, the single chat on mobile.
+    // Each column holds the WHOLE timeline in DOM order (real bubbles for its own
+    // turns, invisible ".spacer" copies for the other speaker's) so the two sides
+    // stay aligned. Un-revealed slots are display:none → they take no space, so a
+    // reveal grows the column from the bottom and lifts everything above it.
+    const cols = desktopChat
+      ? [axRef.current, ocRef.current].filter(Boolean)
+      : Array.from(root.querySelectorAll('.cchat'));
+    const colEls = cols.map((col) =>
+      Array.from(col.querySelectorAll('.cbubble')).sort(
+        (a, b) => Number(a.dataset.gi) - Number(b.dataset.gi),
+      ),
+    );
+
+    const collapse = (el) => {
+      gsap.killTweensOf(el);
+      el.style.display = 'none';
+      gsap.set(el, { clearProps: 'transform' });
+      if (!el.classList.contains('spacer')) el.style.opacity = '0';
+    };
+    colEls.forEach((els) => els.forEach(collapse));
+    revealedRef.current = 0;
+
+    // reveal timeline slot `gi`: in every column, un-hide its element at the
+    // bottom, then slide the already-shown ones up by its height (a real message).
+    const revealGi = (gi) => {
+      colEls.forEach((els) => {
+        const el = els.find((e) => Number(e.dataset.gi) === gi);
+        if (!el) return;
+        const older = els.filter(
+          (e) => Number(e.dataset.gi) < gi && e.style.display !== 'none',
+        );
+        el.style.display = '';
+        const delta = el.offsetHeight + GAP; // final layout height of the new slot
+        if (older.length) {
+          // they jumped up by `delta` when the slot entered layout; slide from
+          // their old spot (y:delta) back to 0 so the lift is smooth.
+          gsap.fromTo(
+            older,
+            { y: delta },
+            { y: 0, duration: REDUCE ? 0.25 : 0.55, ease: 'power3.out', overwrite: 'auto' },
+          );
+        }
+        if (!el.classList.contains('spacer')) {
+          gsap.fromTo(
+            el,
+            { opacity: 0, scaleX: 0.85, scaleY: 0, transformOrigin: 'center bottom' },
+            {
+              opacity: 1,
+              scaleX: 1,
+              scaleY: 1,
+              duration: REDUCE ? 0.3 : 0.55,
+              ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
+              overwrite: 'auto',
+            },
+          );
+        }
+      });
+    };
+
+    // hide the newest slot `gi`: drop it off the bottom, let the rest settle down.
+    const hideGi = (gi) => {
+      colEls.forEach((els) => {
+        const el = els.find((e) => Number(e.dataset.gi) === gi);
+        if (!el || el.style.display === 'none') return;
+        const delta = el.offsetHeight + GAP;
+        const older = els.filter(
+          (e) => Number(e.dataset.gi) < gi && e.style.display !== 'none',
+        );
+        const drop = () => {
+          el.style.display = 'none';
+          gsap.set(el, { clearProps: 'transform' });
+          if (!el.classList.contains('spacer')) el.style.opacity = '0';
+        };
+        if (el.classList.contains('spacer')) drop();
+        else
+          gsap.to(el, {
+            opacity: 0,
+            scaleY: 0,
+            duration: 0.24,
+            ease: 'power3.out',
+            transformOrigin: 'center bottom',
+            overwrite: 'auto',
+            onComplete: drop,
+          });
+        if (older.length) {
+          gsap.fromTo(
+            older,
+            { y: -delta },
+            { y: 0, duration: 6, ease: 'power3.out', overwrite: 'auto' },
+          );
+        }
+      });
+    };
 
     const place = (el, a) => {
       if (!el || !a) return;
       el.style.transform = `translate(${a.x}px, ${a.y - 14}px) translate(-50%, -100%)`;
       el.style.opacity = a.visible ? '' : '0';
     };
-    const show = (el) =>
-      gsap.fromTo(
-        el,
-        { opacity: 0, scaleX: 0.5, scaleY: 0.72, y: 22, transformOrigin: 'center bottom' },
-        {
-          opacity: 1,
-          scaleX: 1,
-          scaleY: 1,
-          y: 0,
-          ease: REDUCE ? 'power2.out' : 'elastic.out(1, 0.6)',
-          duration: REDUCE ? 0.3 : 0.8,
-          overwrite: true,
-        },
-      );
-    const hide = (el) =>
-      gsap.to(el, { opacity: 0, scaleY: 0.8, y: 10, duration: 0.25, ease: 'power2.in', overwrite: true });
 
     let raf = 0;
+    let lastStep = 0;
     const loop = () => {
       if (desktopChat) {
         place(axRef.current, scene.anchors.axolotl);
@@ -83,21 +162,17 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
         const P = progressRef.current;
         // reveal across the last ~0.7 of the scroll INTO this section
         const approach = (P - (index - 0.8)) / 0.7;
-        const targetCount = Math.max(0, Math.min(m, Math.round(approach * m)));
+        const target = Math.max(0, Math.min(m, Math.round(approach * m)));
         let r = revealedRef.current;
         const now = performance.now() / 1000;
-        if (targetCount > r) {
-          // one at a time, paced so they never pop in together
-          if (now - lastRevealRef.current > (REDUCE ? 0.06 : 0.16)) {
-            show(bubbles[r]);
-            r += 1;
-            lastRevealRef.current = now;
-          }
-        } else if (targetCount < r) {
-          while (r > targetCount) {
-            r -= 1;
-            hide(bubbles[r]);
-          }
+        if (target > r && now - lastStep > (REDUCE ? 0.24 : 0.5)) {
+          revealGi(r); // newest enters at the bottom
+          r += 1;
+          lastStep = now;
+        } else if (target < r && now - lastStep > (REDUCE ? 0.24 : 0.5)) {
+          r -= 1;
+          hideGi(r); // newest drops off the bottom first
+          lastStep = now;
         }
         revealedRef.current = r;
       }
@@ -107,9 +182,8 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
     return () => {
       cancelAnimationFrame(raf);
-      // reset so revisiting the section re-reveals from scratch
       revealedRef.current = 0;
-      bubbles.forEach((el) => gsap.set(el, { opacity: 0 }));
+      colEls.forEach((els) => els.forEach(collapse));
     };
   }, [scene, near, desktopChat, mobile]);
 
@@ -121,27 +195,41 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     <div ref={rootRef} className="section-content">
       {desktopChat && axolotl.length > 0 && (
         <div className="cstack left" ref={axRef} style={{ opacity: 0 }}>
-          {axolotl.map((c) => (
-            <div className="cbubble axolotl" data-order={c.gi} key={c.gi} style={{ opacity: 0 }}>
-              {c.text}
-            </div>
-          ))}
+          {withOrder.map((c) =>
+            c.who === 'axolotl' ? (
+              <div className="cbubble axolotl" data-gi={c.gi} key={c.gi} style={{ opacity: 0, display: 'none' }}>
+                {c.text}
+              </div>
+            ) : (
+              // invisible copy of the octopus turn — reserves its slot so the
+              // axolotl replies land at the right height in the shared timeline
+              <div className="cbubble spacer" data-gi={c.gi} aria-hidden="true" key={c.gi} style={{ display: 'none' }}>
+                {c.text}
+              </div>
+            ),
+          )}
         </div>
       )}
       {desktopChat && octopus.length > 0 && (
         <div className="cstack right" ref={ocRef} style={{ opacity: 0 }}>
-          {octopus.map((c) => (
-            <div className="cbubble octopus" data-order={c.gi} key={c.gi} style={{ opacity: 0 }}>
-              {c.text}
-            </div>
-          ))}
+          {withOrder.map((c) =>
+            c.who === 'octopus' ? (
+              <div className="cbubble octopus" data-gi={c.gi} key={c.gi} style={{ opacity: 0, display: 'none' }}>
+                {c.text}
+              </div>
+            ) : (
+              <div className="cbubble spacer" data-gi={c.gi} aria-hidden="true" key={c.gi} style={{ display: 'none' }}>
+                {c.text}
+              </div>
+            ),
+          )}
         </div>
       )}
 
       {mobileChat && chat.length > 0 && (
         <div className="cchat">
           {withOrder.map((c) => (
-            <div className={`cbubble ${c.who}`} data-order={c.gi} key={c.gi} style={{ opacity: 0 }}>
+            <div className={`cbubble ${c.who}`} data-gi={c.gi} key={c.gi} style={{ opacity: 0, display: 'none' }}>
               {c.text}
             </div>
           ))}

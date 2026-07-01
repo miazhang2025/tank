@@ -61,10 +61,10 @@ export const SECTIONS = [
     title: 'Cassette Jury',
     chat: [
       { who: 'axolotl', text: 'Whenever we cannot decide on a thing...' },
-      { who: 'axolotl', text: 'We fight.' },
+      { who: 'octopus', text: 'We fight.' },
     ],
     content: {
-      heading: 'Cassette Jury',
+      // heading: 'Cassette Jury',
       body:
         'Cassette Jury is a creative decision-support toy. It is a panel of 11 AI-simulated characters — each with their own job, taste, and agenda — who act as your on-demand jury when you hit a creative deadlock. Submit an open-ended question, watch them deliberate, get a verdict.\n\n' +
         'It is not a serious research tool. It is a delightful, slightly absurd alternative to running user tests or polling colleagues when you have no time or budget to do so. The product sits at the intersection of creative tooling and playful entertainment.',
@@ -77,7 +77,7 @@ export const SECTIONS = [
     title: 'Santa Beer',
     chat: [],
     content: {
-      heading: 'Santa Beer',
+      // heading: 'Santa Beer',
       body:
         "We were making an ad for a holiday beer — a product that sits at the center of celebration, yet carries awkward cultural baggage: the seasonal guilt of indulgence. People love beer, but it's often framed as something to earn, burn off, or feel guilty about. Instead of avoiding that association, we reversed it.",
       button: { label: 'Drink Beer' },
@@ -89,7 +89,7 @@ export const SECTIONS = [
     title: 'Flaneur',
     chat: [{ who: 'axolotl', text: 'What is this?' }],
     content: {
-      heading: 'Flaneur',
+      // heading: 'Flaneur',
       body:
         'Flâneur is a location-aware iOS app that scores your walk through the city—as you move, it detects your neighborhood and plays music matched to that place\'s cultural and atmospheric identity, never cutting a song off mid-track (the rule is music leads, geography follows). Each neighborhood carries a "sound identity" scored across four weighted dimensions—History, Atmosphere, People, and Time—each mapped to its own Last.fm data source, combined into a seed pool, then filtered through your own listening history. The place-to-music premise rests on Kaminskas & Ricci\'s research on music recommendation for points of interest, which establishes two matching pathways—emotion congruence and POI-semantic matching—that Flâneur engineers into its four-dimension scoring.',
       button: { label: 'Take a walk' },
