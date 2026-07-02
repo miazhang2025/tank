@@ -11,10 +11,16 @@ const BLOB = {
 const encSvg = (s) => `url("data:image/svg+xml,${encodeURIComponent(s)}")`;
 
 const maskSvg =
+  // a slight blur feathers the mask's own edge so the strong backdrop-filter
+  // blur fades out gradually at the boundary instead of cutting off sharply
+  // (a crisp vector mask + a big blur radius otherwise reads as a hard seam).
   `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 499 1080' preserveAspectRatio='none'>` +
+  `<filter id='feather' x='-20%' y='-20%' width='140%' height='140%'><feGaussianBlur stdDeviation='3'/></filter>` +
+  `<g filter='url(#feather)'>` +
   `<path d='${BLOB.c1}' fill='white'/>` +
   `<path fill-rule='evenodd' d='${BLOB.c2}' fill='white'/>` +
-  `<path d='${BLOB.body}' fill='white'/></svg>`;
+  `<path d='${BLOB.body}' fill='white'/>` +
+  `</g></svg>`;
 
 const rimSvg =
   `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 499 1080' preserveAspectRatio='none' fill='none'>` +

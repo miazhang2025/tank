@@ -77,15 +77,22 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     colEls.forEach((els) => els.forEach(collapse));
     revealedRef.current = 0;
 
-    // reveal timeline slot `gi`: in every column, un-hide its element at the
-    // bottom, then slide the already-shown ones up by its height (a real message).
-    const revealGi = (gi) => {
-      colEls.forEach((els) => {
+    // `visible[ci]` tracks, per column, the elements currently shown — oldest
+    // first, newest last — independent of their fixed `gi` slot. That lets the
+    // conversation wrap around: once every line has had its turn, the oldest
+    // one at the top retires while the first line reappears fresh at the
+    // bottom, so it plays on a loop instead of stopping or resetting.
+    const visible = colEls.map(() => []);
+    let seq = 0; // next content slot to reveal = seq % m
+
+    // reveal the next slot in sequence: un-hide it at the bottom, then slide
+    // the already-shown ones up by its height (a real message arriving).
+    const revealNewest = () => {
+      const gi = seq % m;
+      colEls.forEach((els, ci) => {
         const el = els.find((e) => Number(e.dataset.gi) === gi);
         if (!el) return;
-        const older = els.filter(
-          (e) => Number(e.dataset.gi) < gi && e.style.display !== 'none',
-        );
+        const older = visible[ci].slice();
         el.style.display = '';
         const delta = el.offsetHeight + GAP; // final layout height of the new slot
         if (older.length) {
@@ -110,19 +117,22 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
               overwrite: 'auto',
             },
           );
+        } else {
+          el.style.opacity = '';
         }
+        visible[ci].push(el);
       });
+      seq += 1;
     };
 
-    // hide the newest slot `gi`: drop it off the bottom, let the rest settle down.
-    const hideGi = (gi) => {
-      colEls.forEach((els) => {
-        const el = els.find((e) => Number(e.dataset.gi) === gi);
-        if (!el || el.style.display === 'none') return;
+    // drop the newest (bottom-most) shown bubble off the bottom, let the rest
+    // settle down — used when backing out of the section mid-conversation.
+    const retireNewest = () => {
+      colEls.forEach((els, ci) => {
+        const el = visible[ci].pop();
+        if (!el) return;
         const delta = el.offsetHeight + GAP;
-        const older = els.filter(
-          (e) => Number(e.dataset.gi) < gi && e.style.display !== 'none',
-        );
+        const older = visible[ci];
         const drop = () => {
           el.style.display = 'none';
           gsap.set(el, { clearProps: 'transform' });
@@ -143,8 +153,70 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
           gsap.fromTo(
             older,
             { y: -delta },
-            { y: 0, duration: 6, ease: 'power3.out', overwrite: 'auto' },
+            { y: 0, duration: 0.6, ease: 'power3.out', overwrite: 'auto' },
           );
+        }
+      });
+    };
+
+    // Once the whole conversation has had its turn, the "next" line is always
+    // the very bubble sitting oldest at the top (same fixed DOM node — there's
+    // only one element per line). So a wrap-around swap can't reveal-while-
+    // retiring the same node at once; it has to retire it from the top first,
+    // then re-append it as the last child and reveal it again at the bottom.
+    // The stack is bottom-anchored, so retiring from the top needs no
+    // compensating slide for the rest — only the fresh bottom entry does.
+    const RETIRE_DUR = 0.3;
+    const wrapOldestToNewest = () => {
+      colEls.forEach((els, ci) => {
+        const el = visible[ci].shift();
+        if (!el) return;
+        const reappear = () => {
+          el.style.display = 'none';
+          gsap.set(el, { clearProps: 'transform' });
+          if (!el.classList.contains('spacer')) el.style.opacity = '0';
+          el.parentNode.appendChild(el); // move to the end so DOM order matches the new visual order
+
+          const older = visible[ci].slice();
+          el.style.display = '';
+          const delta = el.offsetHeight + GAP;
+          if (older.length) {
+            gsap.fromTo(
+              older,
+              { y: delta },
+              { y: 0, duration: REDUCE ? 0.25 : 0.55, ease: 'power3.out', overwrite: 'auto' },
+            );
+          }
+          if (!el.classList.contains('spacer')) {
+            gsap.fromTo(
+              el,
+              { opacity: 0, scaleX: 0.85, scaleY: 0, transformOrigin: 'center bottom' },
+              {
+                opacity: 1,
+                scaleX: 1,
+                scaleY: 1,
+                duration: REDUCE ? 0.3 : 0.55,
+                ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
+                overwrite: 'auto',
+              },
+            );
+          } else {
+            el.style.opacity = '';
+          }
+          visible[ci].push(el);
+        };
+        if (el.classList.contains('spacer')) {
+          gsap.delayedCall(RETIRE_DUR, reappear);
+        } else {
+          gsap.to(el, {
+            opacity: 0,
+            scaleY: 0,
+            duration: RETIRE_DUR,
+            ease: 'power2.in',
+            transformOrigin: 'center bottom',
+            overwrite: 'auto',
+            onComplete: reappear,
+          });
         }
       });
     };
@@ -158,8 +230,15 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     let raf = 0;
     let lastStep = 0;
     let wasActive = false;
-    let enteredAt = 0;
-    const REVEAL_GAP = REDUCE ? 0.35 : 0.85; // pause between successive bubble pop-ups
+    // intro section (index 0) runs its pop-ups noticeably slower than the rest,
+    // and irregularly — like a real conversation — instead of a fixed metronome
+    const OTHER_GAP = REDUCE ? 0.35 : 0.85;
+    const MAIN_GAP_MIN = REDUCE ? 0.5 : 2.2;
+    const MAIN_GAP_MAX = REDUCE ? 0.8 : 3.6;
+    const nextGap = () =>
+      index === 0 ? MAIN_GAP_MIN + Math.random() * (MAIN_GAP_MAX - MAIN_GAP_MIN) : OTHER_GAP;
+    let gap = nextGap();
+
     const loop = () => {
       if (desktopChat) {
         place(axRef.current, scene.anchors.axolotl);
@@ -169,26 +248,38 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
         const P = progressRef.current;
         const now = performance.now() / 1000;
         const active = Math.round(P) === index; // fully snapped/settled into this section
-        if (active && !wasActive) enteredAt = now; // (re)start the pop-up sequence on arrival
+        if (active && !wasActive) {
+          // (re)start the conversation fresh from its first line on arrival —
+          // also undo any DOM reordering a previous loop pass left behind, so
+          // the stack renders in its original top-to-bottom order again
+          seq = 0;
+          visible.forEach((arr) => (arr.length = 0));
+          colEls.forEach((els) => {
+            els
+              .slice()
+              .sort((a, b) => Number(a.dataset.gi) - Number(b.dataset.gi))
+              .forEach((el) => el.parentNode.appendChild(el));
+          });
+        }
         wasActive = active;
 
-        // Reveals are paced by time-since-arrival (not scroll position) so they
-        // only ever start once fully scrolled in, never mid-transition. Leaving
-        // this section (scrolled elsewhere) collapses everything again.
-        const target = active
-          ? Math.max(0, Math.min(m, Math.floor((now - enteredAt) / REVEAL_GAP) + 1))
-          : 0;
-        let r = revealedRef.current;
-        if (target > r && now - lastStep > REVEAL_GAP) {
-          revealGi(r); // newest enters at the bottom
-          r += 1;
+        const shown = visible[0] ? visible[0].length : 0;
+        if (active && now - lastStep > gap) {
+          if (shown < m) {
+            revealNewest(); // still filling the stack for the first time
+          } else if (index === 0) {
+            // only the opening scene loops forever; every other section just
+            // stays fully revealed once its conversation has played out
+            wrapOldestToNewest(); // full stack: retire the oldest, replay it fresh at the bottom
+          }
           lastStep = now;
-        } else if (target < r && now - lastStep > REVEAL_GAP) {
-          r -= 1;
-          hideGi(r); // newest drops off the bottom first
+          gap = nextGap(); // re-roll so the next pause is a different length too
+        } else if (!active && shown > 0 && now - lastStep > gap) {
+          retireNewest(); // scrolled away: collapse newest-first
           lastStep = now;
+          gap = nextGap();
         }
-        revealedRef.current = r;
+        revealedRef.current = shown;
       }
       raf = requestAnimationFrame(loop);
     };

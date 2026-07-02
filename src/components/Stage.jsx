@@ -50,10 +50,10 @@ export default function Stage({ scene, active }) {
     if (!scene) return undefined;
 
     const lenis = new Lenis({
-      duration: 1.15,
+      duration: 0.7,
       easing: (x) => (x < 0.5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2),
       smoothWheel: true,
-      wheelMultiplier: 0.9,
+      wheelMultiplier: 1,
       touchMultiplier: 1.1,
     });
     lenisRef.current = lenis;
@@ -104,8 +104,9 @@ export default function Stage({ scene, active }) {
       end: 'bottom bottom',
       snap: {
         snapTo: 1 / (N - 1),
-        duration: { min: 0.25, max: 0.6 },
-        ease: 'power2.inOut',
+        duration: { min: 0.15, max: 0.35 },
+        delay: 0.05,
+        ease: 'power2.out',
       },
       onUpdate: (self) => applyProgress(self.progress),
     });

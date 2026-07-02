@@ -114,6 +114,64 @@ Framework is **data-driven**. After scaffolding, drop text into `src/content/sec
 
 ---
 
+### Phase 7 — "Figma glass" material (refraction · depth · dispersion · frost · splay)
+Upgrade the existing flat frosted-glass (`--glass-bg` + `blur/saturate/brightness`) on the
+**sidebar, conversation bubbles, CTA button, content cloud** toward the fuller glass look
+described by Figma's Glass effect knobs. These are DOM/CSS elements over an animating WebGL
+canvas, not native Figma nodes, so each attribute is *approximated*:
+
+| attribute | how |
+|---|---|
+| **Frost** | existing `backdrop-filter: blur()/saturate()/brightness()` (plain CSS, universal) + a faint static noise-grain layer for an "etched" texture. |
+| **Depth** | plain CSS: layered `box-shadow` (inset top highlight + inset bottom shadow + outer ambient shadow) on the existing masked `::before` glass layer — the mask clips the shadow to the blob silhouette, reading as glass thickness. Universal, no SVG needed. |
+| **Refraction** | new `::after` overlay per surface, same mask as the surface's own shape, `backdrop-filter: url(#glass-x)` — a low-frequency `feTurbulence` → `feDisplacementMap` bending the backdrop like a lens. |
+| **Splay** | inside the same filter: a second, stronger displacement pass blended in only near the shape edges via a static radial-gradient mask (`feImage`, cheap — not recomputed from the animating backdrop), so bend increases toward the rim like real glass. |
+| **Dispersion** | inside the same filter: split the warped result into R/G/B (`feColorMatrix`), nudge R/B a pixel apart, recombine with `feBlend mode="screen"` → a subtle chromatic fringe at edges. |
+
+**Architecture** (mirrors the sidebar's existing `.sidebar` + `.sidebar-refract` two-layer
+pattern, extended to the other 3 surfaces as `::before` base glass + `::after` SVG-warp overlay
+— no new DOM nodes needed except where a surface's mask is JS-driven like the sidebar):
+- `index.html`: replace the single `#glassWarp` filter with 4 tuned variants —
+  `#glass-sidebar`, `#glass-cloud`, `#glass-cta` (full 5-attribute treatment — larger, few
+  on-screen at once) and a **lighter** `#glass-bubble` (refraction + frost + depth + mild
+  dispersion, **skip the edge-splay pass**) since several chat bubbles can be on-screen and
+  animating at once — full per-bubble splay risks jank for a barely-visible payoff at that size.
+- `src/index.css`: add the depth box-shadow to the shared `--glass-*` rim treatment; add each
+  surface's `::after` refract overlay (reusing that surface's existing mask/mask-border).
+- **Fallback (Firefox/Safari):** `backdrop-filter: url(#...)` silently no-ops there, so the
+  `::after` overlay simply contributes nothing — surfaces fall back to the plain blur + new
+  depth box-shadow + frost grain (all plain CSS, render everywhere). Only refraction/splay/
+  dispersion are Chromium-only, same precedent as `mask-border` ([[bubble-shape-mask-border]]).
+- **Perf:** filters are only recomputed on repaint, but these surfaces sit over a continuously
+  animating canvas so they repaint every frame — keep filter regions tight to each shape's
+  bbox, avoid `feMorphology` (expensive; use the static `feImage` radial mask instead for splay),
+  and profile once landed; dial back per-surface if any surface causes visible frame drops.
+
+**Checklist**
+- [x] `index.html`: author `#glass-sidebar`, `#glass-bubble`, `#glass-cloud`, `#glass-cta` filters.
+- [x] `index.css`: depth box-shadow added to sidebar / `.cbubble::before` / `.content-cloud::before` / `.cloud-button-shape`.
+- [x] `index.css`: frost grain layer (shared, low opacity, tuned per surface).
+- [x] `index.css`: `::after` refract overlay wired to each surface's existing mask, using its filter.
+- [x] Verify in Chromium — **found a real bug**: `backdrop-filter: url(#svg)` on the `::after`
+  overlay rendered as **flat opaque gray** instead of layering distortion over the transparent
+  tinted glass, on real hardware Chrome (not just the headless test harness). Reproduced on
+  sidebar/bubbles/CTA/content-cloud.
+- [x] **Reverted** refraction/splay/dispersion entirely (deleted the `::after` overlays; sidebar's
+  `.sidebar-refract` back on the original simple `#glassWarp`). Kept depth (box-shadow) + frost
+  (noise grain) on `::before` — plain CSS, never implicated in the bug, confirmed good in every
+  screenshot. Removed the unused `#glass-sidebar`/`#glass-cloud`/`#glass-cta`/`#glass-bubble`
+  filter defs from `index.html`.
+- [x] **Simplified for real**: rather than root-causing the custom multi-primitive filters, unified
+  every surface onto the **sidebar's exact material** — same `--glass-bg` gradient (270deg teal,
+  was a separate lighter cream gradient before), same `--glass-blur`, and the same proven simple
+  `#glassWarp` filter (2 primitives: `feTurbulence` → `feDisplacementMap`, no channel-split/no
+  edge-splay) reused as each surface's `::after` refract layer — no more per-surface custom
+  filters. Removed `--glass-bg-solid` (content-cloud now uses the one shared `--glass-bg`).
+  Verified clean (no gray) across main/about/santa-beer, including long-wait screenshots.
+- [ ] Perf check: scroll through 2-3 sections with multiple bubbles + cloud on-screen, watch for jank.
+
+---
+
 ## Revisions (post-review feedback)
 - Axolotl was back-facing → front-facing yaw is now **−π/2** (octopus −π/2). Override via `?ay=&oy=`.
 - Creatures use a **skinned** candy shader (`makeCreatureMat` with `skinning_*` chunks) so the GLB rigs animate while keeping correct colour; `AnimationMixer` blends **idle ↔ swim** by on-screen speed (axolotl `axolotl_idle`/`axolotl_swim`, octopus `Idle`/`Attack`).

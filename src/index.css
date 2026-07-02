@@ -12,26 +12,27 @@
   --c-cream: #fdf5e7;
   --c-ink: #303030; /* body / dialogue / cloud text */
 
-  /* ---- frosted glass: the sidebar's frosted-glass *material* (blur + rim),
-     but light-tinted so dark UI text reads crisply on top (a dark teal tint
-     over dark text reads as "submerged"). Reused by every bubble / cloud / CTA. */
-  --glass-bg: linear-gradient(
-    160deg,
-    rgba(232, 244, 245, 0.36) 0%,
-    rgba(203, 231, 235, 0.24) 55%,
-    rgba(183, 219, 226, 0.14) 100%
+  /* ---- frosted glass: the EXACT sidebar material (same gradient + blur), reused
+     as-is by every bubble / content-cloud / CTA so the whole site shares one glass. */
+  --glass-bg: radial-gradient(
+      rgba(174, 233, 250, 0.0) 0%,
+      rgba(185, 228, 236, 0.116) 70%,
+      rgba(218, 242, 247, 0.199) 90%,
+      rgba(218, 242, 247, 0.199) 100%
   );
-  /* slightly more present variant for long-form reading panels (content clouds) */
-  --glass-bg-solid: linear-gradient(
-    160deg,
-    rgba(234, 245, 246, 0.52) 0%,
-    rgba(206, 232, 236, 0.185) 55%,
-    rgba(188, 222, 228, 0.34) 100%
-  );
-  --glass-blur: blur(6px) saturate(112%) brightness(1.03);
-  --glass-rim: rgba(255, 255, 255, 0.87);
+  --glass-blur: blur(50px) saturate(112%) brightness(0.9);
+  --glass-rim: rgba(255, 255, 255, 1);
   /* light halo so the solid dark text stays legible on the transparent glass */
   --text-halo: 0 0 5px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(255, 255, 255, 0.75);
+
+  /* ---- glass "depth" + "frost": thickness-reading inset shadow (clipped to
+     each surface's own mask, so it traces the blob silhouette) + a faint
+     static noise grain blended over the glass. Both are plain CSS (render in
+     every browser); refraction/splay/dispersion live in the SVG filters in
+     index.html and are layered on top via a Chromium-only ::after overlay. */
+  --glass-depth: inset 0 3px 7px rgba(255, 255, 255, 0.05),
+    inset 0 -10px 18px rgba(8, 30, 36, 0.05);
+  --noise-bg: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' seed='4'/%3E%3CfeColorMatrix type='matrix' values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.4 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 html,
 body {
@@ -149,25 +150,47 @@ canvas {
   position: absolute;
   inset: -7px -22px; /* caps sit outside the text box so edges never clip text */
   z-index: -1; /* glass sits behind the unmasked text */
-  background: linear-gradient(var(--tint), var(--tint)), var(--glass-bg);
+  background: radial-gradient(var(--tint0) 0%, var(--tint) 60%, var(--tint1) 100%);
+  background-blend-mode: multiply, normal;
+  background-repeat: no-repeat, no-repeat;
+  background-size: 100% 100%, 100% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-depth);
   /* slice: 12px top/bottom (thin edge) · 95px left/right (the rounded ends) */
   -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
   mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
   /* crisp rim tracing the bubble silhouette — same strength as .sidebar-rim's
      1.4px stroke at ~0.5 alpha, built from two tight drop-shadow layers since
      the shape is a dynamic mask (no separate stroke asset to overlay). */
-  filter: drop-shadow(0 0 0.6px rgba(255, 255, 255, 0.85))
+  filter: drop-shadow(0 0 0.1px var(--glass-rim))
     drop-shadow(0 0 1.3px rgba(255, 255, 255, 0.5))
-    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.18));
+}
+.cbubble::after {
+  /* same refraction overlay as the sidebar's .sidebar-refract, reusing the
+     simple, proven #glassWarp filter (not the heavier custom filters tried
+     earlier, which rendered as flat gray). */
+  content: "";
+  position: absolute;
+  inset: -7px -22px;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
+  mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
+  -webkit-backdrop-filter: url(#glassWarp);
+  backdrop-filter: url(#glassWarp);
 }
 /* speaker identity = faint tint over the sidebar glass (text stays centered) */
 .cbubble.axolotl {
-  --tint: rgba(231, 149, 181, 0.185);
+  --tint: rgba(236, 101, 153, 0.05);
+  --tint0: rgba(255, 21, 110, 0);
+  --tint1: rgba(245, 155, 189, 0.2);
 }
 .cbubble.octopus {
-  --tint: rgba(240, 102, 84, 0.253);
+  --tint: rgba(255, 30, 0, 0.05);
+  --tint0: rgba(255, 73, 49, 0);
+  --tint1: rgba(250, 166, 152, 0.2);
 }
 
 /* ---------- content cloud (frosted thought bubble) ---------- */
@@ -176,6 +199,9 @@ canvas {
   isolation: isolate;
   pointer-events: auto;
   will-change: transform, opacity;
+  /* which silhouette the ::before/::after glass is masked to — overridden
+     per-section / on mobile below so both layers stay in sync automatically. */
+  --cloud-mask: url("/UI/content-mask.svg");
 }
 .content-cloud::before {
   /* solid frosted reading panel on its own layer; the text (.cloud-inner) is
@@ -184,17 +210,35 @@ canvas {
   position: absolute;
   inset: 0;
   z-index: -1;
-  -webkit-mask: url("/UI/content-mask.svg") no-repeat center / 100% 100%;
-  mask: url("/UI/content-mask.svg") no-repeat center / 100% 100%;
-  background: var(--glass-bg-solid);
+  -webkit-mask: var(--cloud-mask) no-repeat center / 100% 100%;
+  mask: var(--cloud-mask) no-repeat center / 100% 100%;
+  background: var(--glass-bg);
+  background-blend-mode:normal;
+  background-repeat:  no-repeat;
+  background-size: 100% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
-  filter: drop-shadow(0 0 1px var(--glass-rim))
+  box-shadow: var(--glass-depth);
+  /* same crisp double-rim as the conversation bubbles + sidebar */
+  filter: drop-shadow(0 0 6px var(--glass-rim))
+    drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.5))
     drop-shadow(0 10px 30px rgba(8, 30, 36, 0.24));
+}
+.content-cloud::after {
+  /* same refraction overlay as the sidebar's .sidebar-refract, using #glassWarp. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  -webkit-mask: var(--cloud-mask) no-repeat center / 100% 100%;
+  mask: var(--cloud-mask) no-repeat center / 100% 100%;
+  -webkit-backdrop-filter: url(#glassWarp);
+  backdrop-filter: url(#glassWarp);
 }
 .cloud-inner {
   position: absolute;
-  inset: 17% 17% 24% 18%; /* generous so text never hits the cloud's bumps/tail */
+  inset: 17% 17% 24% 17%; /* generous so text never hits the cloud's bumps/tail */
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -237,7 +281,9 @@ canvas {
   /* same rules as the chat bubbles: centered label, modest vertical padding,
      generous horizontal room so the text always sits inside the blob */
   padding: 15px 44px;
-  --tint: rgba(217, 77, 59, 0.432); /* octopus-bubble colour */
+  --tint: rgba(255, 30, 0, 0.192);
+  --tint0: rgba(253, 108, 89, 0.185);
+  --tint1: rgba(255, 46, 19, 0.5); /* octopus-bubble colour */
   will-change: transform; /* GSAP owns transform (magnetic pull + scale) */
 }
 .cloud-button-label {
@@ -252,13 +298,30 @@ canvas {
   z-index: -1;
   transform-origin: center;
   will-change: transform;
-  background: linear-gradient(var(--tint), var(--tint)), var(--glass-bg);
+  background:  radial-gradient(var(--tint0) 0%, var(--tint) 30%, var(--tint1) 100%);
+  background-blend-mode: multiply;
+  background-repeat: no-repeat;
+  background-size:100% 100%, 100% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-depth);
   -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
   mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
-  filter: drop-shadow(0 0 0.7px var(--glass-rim))
+  /* same crisp double-rim as the conversation bubbles + sidebar */
+  filter: drop-shadow(0 0 0.6px var(--glass-rim))
+    drop-shadow(0 0 1.4px rgba(255, 255, 255, 0.5))
     drop-shadow(0 5px 15px rgba(8, 30, 36, 0.2));
+}
+.cloud-button-shape::after {
+  /* same refraction overlay as the sidebar's .sidebar-refract, using #glassWarp. */
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
+  mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
+  -webkit-backdrop-filter: url(#glassWarp);
+  backdrop-filter: url(#glassWarp);
 }
 
 /* per-section cloud placement (tuned to the mockups; refined in Phase 5) */
@@ -269,10 +332,10 @@ canvas {
   height: min(44vh, 440px);
 }
 /* About's cloud is the smaller footprint — use the small bubble silhouette
-   instead of the generic (larger-cloud-proportioned) content-mask.svg. */
-.section-layer[data-section="about"] .content-cloud::before {
-  -webkit-mask-image: url("/UI/content bubble-sm.svg");
-  mask-image: url("/UI/content bubble-sm.svg");
+   instead of the generic (larger-cloud-proportioned) content-mask.svg. Setting
+   the variable (not ::before directly) keeps the ::after refract overlay in sync. */
+.section-layer[data-section="about"] .content-cloud {
+  --cloud-mask: url("/UI/content bubble-sm.svg");
 }
 .section-layer[data-section="cassette-jury"] .content-cloud {
   left: 38vw; /* pulled in toward centre */
@@ -338,12 +401,11 @@ canvas {
     width: auto !important;
     height: min(74vh, 660px) !important;
   }
-  .stage .content-cloud::before,
+  .stage .content-cloud,
   /* higher specificity than the desktop-only about override above, so mobile
      still gets the portrait silhouette instead of the small bubble shape */
-  .stage .section-layer[data-section="about"] .content-cloud::before {
-    -webkit-mask-image: url("/UI/content-mobile-mask.svg");
-    mask-image: url("/UI/content-mobile-mask.svg");
+  .stage .section-layer[data-section="about"] .content-cloud {
+    --cloud-mask: url("/UI/content-mobile-mask.svg");
   }
   .cloud-inner {
     inset: 12% 11% 16% 11%;
@@ -525,14 +587,13 @@ canvas {
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
   mask-position: center;
-  background: linear-gradient(
-    270deg,
-    rgba(46, 82, 92, 0.42) 0%,
-    rgba(66, 116, 130, 0.22) 48%,
-    rgba(160, 215, 228, 0.04) 100%
-  );
-  -webkit-backdrop-filter: blur(6px) saturate(112%) brightness(1.03);
-  backdrop-filter: blur(6px) saturate(112%) brightness(1.03);
+  background: var(--noise-bg), var(--glass-bg);
+  background-blend-mode: overlay, normal;
+  background-repeat: repeat, no-repeat;
+  background-size: 220px 220px, 100% 100%;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  box-shadow: var(--glass-depth);
 }
 .sidebar-rim {
   z-index: 9;
@@ -554,6 +615,7 @@ canvas {
   mask-repeat: no-repeat;
   -webkit-mask-position: center;
   mask-position: center;
+  -webkit-backdrop-filter: url(#glassWarp);
   backdrop-filter: url(#glassWarp);
 }
 .menu {
