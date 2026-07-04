@@ -387,12 +387,12 @@ canvas {
   /* iMessage-style chat column, anchored above the creatures, grows upward */
   .cchat {
     position: absolute;
-    left: 5vw;
-    right: 5vw;
-    bottom: 26vh;
+    left: 7vw;
+    right: 7vw;
+    bottom: 38vh;
     display: flex;
     flex-direction: column;
-    gap: 16px;
+    gap: 20px;
     pointer-events: none;
     z-index: 2; /* conversation bubbles sit above the content cloud */
   }
@@ -400,7 +400,7 @@ canvas {
     width: auto;
     max-width: 74%;
     font-size: 12px;
-    padding: 11px 18px; /* hug-content bubbles: fixed px, not the 7.5% desktop rule */
+    padding: 16px 20px; /* hug-content bubbles: fixed px, not the 7.5% desktop rule */
   }
   .cchat .cbubble.axolotl {
     align-self: flex-start;
@@ -431,7 +431,7 @@ canvas {
   /* higher specificity than the desktop-only about override above, so mobile
      still gets the portrait silhouette instead of the small bubble shape */
   .stage .section-layer[data-section="about"] .content-cloud {
-    --cloud-mask: url("/UI/content-mobile-mask.svg");
+    --cloud-mask: url("/UI/content bubble-mobile.svg");
   }
   .cloud-inner {
     inset: 12% 11% 16% 11%;
