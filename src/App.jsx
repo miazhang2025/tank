@@ -37,7 +37,7 @@ export default function App() {
       <Stage scene={scene} active={active} />
 
       <div className="ui">
-        <div className="t">CRESHE.TANK</div>
+        <div className="t">CRÈCHE / the tank</div>
         <div className="h">We currently do not have an address yet, you can contact Mia at miazhang2025@gmail.com she can help us.</div>
       </div>
 

@@ -57,7 +57,7 @@ export const SECTIONS = [
     id: 'about',
     title: 'About',
     chat: [
-      { who: 'axolotl', text: 'So, what is CRESHE?' },
+      { who: 'axolotl', text: 'So, what is CRÈCHE?' },
       { who: 'octopus', text: 'A tank. Two of us live in it — the octopus and the axolotl.' },
       { who: 'axolotl', text: 'A new media studio. We make small weird things. The tank is real.' },
       { who: 'octopus', text: 'What do we make?' },
@@ -66,7 +66,7 @@ export const SECTIONS = [
     ],
     content: {
       heading: null,
-      body: 'CRECHE is a new media studio. It makes small, weird things — interactive things, video things, story things.',
+      body: 'CRÈCHE is a new media studio. It makes small, weird things — interactive things, video things, story things.',
       button: null,
     },
   },
@@ -104,11 +104,11 @@ export const SECTIONS = [
 
   {
     id: 'flaneur',
-    title: 'Flaneur',
+    title: 'Flâneur',
     chat: [{ who: 'octopus', text: 'What is this?' },
       { who: 'axolotl', text: 'I hope I can leave water one day.' }],
     content: {
-      // heading: 'Flaneur',
+      // heading: 'Flâneur',
       body:
         'Flâneur is an iOS app that plays music as your walk through the city. You walk, it notices the neighborhood,  and plays music matched to that places cultural and atmospheric identity. Every neighborhood has a sound, which we measure across four things: History, Atmosphere, People, and Time. Each neighborhood has a "sound identity", combined into a seed pool, then filtered through your own listening history.  \n\n The city writes its own poem in music.',
       button: { label: 'Take a walk', href: 'https://flaneur-neon.vercel.app/' },
@@ -127,13 +127,13 @@ export const SECTIONS = [
 ];
 
 /** Brand wordmark shown top-left on every section. */
-export const WORDMARK = 'CRECHE / the tank';
+export const WORDMARK = 'CRÈCHE / the tank';
 
 /** Sidebar menu — label + the section id it scrolls to. */
 export const MENU = [
   { label: 'About', target: 'about' },
   { label: 'Cassette Jury', target: 'cassette-jury' },
   { label: 'Santa Beer', target: 'santa-beer' },
-  { label: 'Flaneur', target: 'flaneur' },
+  { label: 'Flâneur', target: 'flaneur' },
   { label: 'More', target: 'more' },
 ];

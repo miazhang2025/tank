@@ -274,7 +274,7 @@ canvas {
   text-align: center;
   /* same rules as the chat bubbles: centered label, modest vertical padding,
      generous horizontal room so the text always sits inside the blob */
-  padding: 15px 44px;
+  padding: 25px 25px;
   --tint: rgba(255, 30, 0, 0.192);
   --tint0: rgba(253, 108, 89, 0.185);
   --tint1: rgba(255, 46, 19, 0.5); /* octopus-bubble colour */
@@ -389,10 +389,10 @@ canvas {
     position: absolute;
     left: 7vw;
     right: 7vw;
-    bottom: 38vh;
+    bottom: 35vh;
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 16px;
     pointer-events: none;
     z-index: 2; /* conversation bubbles sit above the content cloud */
   }
