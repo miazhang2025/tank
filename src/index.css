@@ -23,7 +23,6 @@
   --glass-blur: blur(50px) saturate(112%) brightness(0.9);
   --glass-rim: rgba(255, 255, 255, 1);
   /* light halo so the solid dark text stays legible on the transparent glass */
-  --text-halo: 0 0 5px rgba(255, 255, 255, 0.85), 0 1px 2px rgba(255, 255, 255, 0.75);
 
   /* ---- glass "depth" + "frost": thickness-reading inset shadow (clipped to
      each surface's own mask, so it traces the blob silhouette) + a faint
@@ -39,6 +38,15 @@ body {
   margin: 0;
   background: #0a2c2e;
   overflow-x: hidden;
+}
+/* the UA default ::selection is translucent, so it blends with whatever's
+   underneath it — over the pink/peach bubble art that reads as a muted
+   violet, over the paler content-cloud it reads as clean blue, even though
+   both texts are equally full-opacity. High-alpha here keeps the highlight
+   reading the same colour everywhere on the site. */
+::selection {
+  background: rgba(20, 46, 66, 0.92);
+  color: var(--c-cream);
 }
 /* #root is in normal flow so the scroll spacer can create page height */
 #root {
@@ -113,10 +121,11 @@ canvas {
   flex-direction: column;
   gap: 18px;
   pointer-events: none;
+  z-index: 2; /* conversation bubbles sit above the content cloud */
 }
 .cbubble {
-  /* fixed width / auto height. The glass + blob silhouette live on ::before, so
-     the mask shape never touches the text — the text is always 100% opacity. */
+  /* fixed width / auto height. The bubble art lives on ::before (border-image),
+     so it never touches the text — the text is always 100% opacity. */
   position: relative;
   isolation: isolate;
   width: 100%;
@@ -125,15 +134,19 @@ canvas {
   font-size: clamp(11px, 0.95vw, 14px);
   line-height: 1.5;
   color: var(--c-ink); /* solid, full-opacity text */
-  /* text-shadow: var(--text-halo); */
   /* SAME width for every bubble; only the HEIGHT grows with the text.
      horizontal 7.5% each side → text area = 0.85 × bubble width, so long lines
      wrap (never spill past the blob); modest vertical padding keeps it snug. */
-  padding: 12px 7.5%;
+  padding: 20px 8%;
   white-space: pre-line;
   text-align: center;
-  --tint: transparent;
-  will-change: transform, opacity;
+  /* NOT `will-change: transform` — a settled bubble keeps GSAP's leftover
+     inline transform, and transform + will-change:transform permanently
+     promotes the element to its own GPU layer, which makes Chromium render
+     the text with grayscale AA instead of subpixel AA (reads lighter/thinner
+     than normal page text until you select it, which repaints it normally). */
+  will-change: opacity;
+  z-index: 2; /* whole bubble sits above the content cloud (see .cstack) */
 }
 /* invisible copy of the OTHER speaker's turn: reserves its vertical slot so both
    columns share one timeline (bubbles never overlap or crowd across sides) */
@@ -141,56 +154,36 @@ canvas {
   visibility: hidden;
 }
 .cbubble::before {
-  /* the bubble IMAGE (conversation-mask.svg), 9-SLICED via mask-border so the
-     rounded end-caps keep their shape and ONLY the middle stretches vertically.
-     Result: identical width at every height, height grows with the text —
-     instead of a plain mask that stretches the whole shape (which squashed short
-     bubbles narrow). */
+  /* the bubble ART (axolotl/octopus cbubble.png, per speaker), 9-SLICED via
+     border-image so the rounded end-caps keep their shape and ONLY the middle
+     stretches vertically — same "fixed width, height grows with text" rule as
+     before, but painting the actual artwork (colour + shading baked in)
+     instead of a generic mask + CSS-generated tint/glass. */
   content: "";
   position: absolute;
   inset: -7px -22px; /* caps sit outside the text box so edges never clip text */
-  z-index: -1; /* glass sits behind the unmasked text */
-  background: radial-gradient(var(--tint0) 0%, var(--tint) 60%, var(--tint1) 100%);
-  background-blend-mode: normal;
-  background-repeat: no-repeat;
-  background-size: 100% 100%, 100% 100%;
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
-  box-shadow: var(--glass-depth);
-  /* slice: 12px top/bottom (thin edge) · 95px left/right (the rounded ends) */
-  -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
-  mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
-  /* crisp rim tracing the bubble silhouette — same strength as .sidebar-rim's
-     1.4px stroke at ~0.5 alpha, built from two tight drop-shadow layers since
-     the shape is a dynamic mask (no separate stroke asset to overlay). */
-  filter: drop-shadow(0 0 0.1px var(--glass-rim))
-    drop-shadow(0 0 1.3px rgba(255, 255, 255, 0.5))
-    drop-shadow(0 5px 15px rgba(8, 30, 36, 0.18));
-}
-.cbubble::after {
-  /* same refraction overlay as the sidebar's .sidebar-refract, reusing the
-     simple, proven #glassWarp filter (not the heavier custom filters tried
-     earlier, which rendered as flat gray). */
-  content: "";
-  position: absolute;
-  inset: -7px -22px;
+  /* MUST be negative: a positioned pseudo-element at z-index:0 still paints
+     ON TOP of plain in-flow text (static content always loses to positioned
+     content, even at z-index 0) — only a negative z-index actually puts it
+     behind. The PNG's fill region is only ~20% opaque, so at z-index:0 it was
+     compositing its pink tint over the (fully-opaque) text, making it read as
+     a much lighter, pink-shifted colour instead of solid --c-ink. */
   z-index: -1;
-  pointer-events: none;
-  -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
-  mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
-  -webkit-backdrop-filter: url(#glassWarp);
-  backdrop-filter: url(#glassWarp);
+  border-style: solid;
+  border-width: 12px 95px;
+  border-image-source: var(--bubble-img);
+  border-image-slice: 12 95 fill;
+  border-image-width: auto;
+  border-image-outset: 0;
+  border-image-repeat: stretch;
+  /* box-shadow: var(--glass-depth), 0 5px 15px rgba(8, 30, 36, 0.18); */
 }
-/* speaker identity = faint tint over the sidebar glass (text stays centered) */
+/* speaker identity = which pre-made bubble art this speaker uses */
 .cbubble.axolotl {
-  --tint: rgba(236, 101, 153, 0.05);
-  --tint0: rgba(255, 21, 110, 0);
-  --tint1: rgba(245, 155, 189, 0.2);
+  --bubble-img: url("/UI/axolotl cbubble.png");
 }
 .cbubble.octopus {
-  --tint: rgba(255, 30, 0, 0.05);
-  --tint0: rgba(255, 73, 49, 0);
-  --tint1: rgba(250, 166, 152, 0.2);
+  --bubble-img: url("/UI/octopus  cbubble.png");
 }
 
 /* ---------- content cloud (frosted thought bubble) ---------- */
@@ -199,22 +192,26 @@ canvas {
   isolation: isolate;
   pointer-events: auto;
   will-change: transform, opacity;
+  z-index: 1; /* stays below the conversation bubbles (desktop + mobile) */
   /* which silhouette the ::before/::after glass is masked to — overridden
-     per-section / on mobile below so both layers stay in sync automatically. */
-  --cloud-mask: url("/UI/content-mask.svg");
+     per-section / on mobile below so both layers stay in sync automatically.
+     The box is a FIXED size per section (unlike .cbubble's grow-with-text
+     pill), so the shape is fit with a plain full-stretch mask, not 9-sliced. */
+  --cloud-mask: url("/UI/content bubble.svg");
 }
 .content-cloud::before {
   /* solid frosted reading panel on its own layer; the text (.cloud-inner) is
-     never masked, so it stays 100% opacity. */
+     never masked, so it stays 100% opacity. Painted from the SVG's OWN fill
+     (its baked-in gradient), not the generic --glass-bg tint — mask is only
+     used to clip the backdrop-blur + rim glow to the cloud silhouette. */
   content: "";
   position: absolute;
   inset: 0;
   z-index: -1;
   -webkit-mask: var(--cloud-mask) no-repeat center / 100% 100%;
   mask: var(--cloud-mask) no-repeat center / 100% 100%;
-  background: var(--glass-bg);
-  background-blend-mode:normal;
-  background-repeat:  no-repeat;
+  background-image: var(--cloud-mask);
+  background-repeat: no-repeat;
   background-size: 100% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
   backdrop-filter: var(--glass-blur);
@@ -249,7 +246,6 @@ canvas {
   font-size: clamp(30px, 3.9vw, 56px);
   line-height: 1;
   color: #2c2c2c; /* solid, full opacity */
-  text-shadow: var(--text-halo);
   margin: 0 0 0.4em;
 }
 .cloud-body {
@@ -257,7 +253,6 @@ canvas {
   font-size: clamp(14px, 1.18vw, 19px);
   line-height: 1.5;
   color: #303030; /* solid, full opacity */
-  /* text-shadow: var(--text-halo); */
 }
 .cloud-body p {
   margin: 0 0 0.8em;
@@ -275,7 +270,6 @@ canvas {
   font-size: clamp(12px, 1.05vw, 15px);
   letter-spacing: 0.02em;
   color: var(--c-ink);
-  /* text-shadow: var(--text-halo); */
   text-decoration: none;
   text-align: center;
   /* same rules as the chat bubbles: centered label, modest vertical padding,
@@ -295,7 +289,7 @@ canvas {
      button's own magnetic-pull + scale transform on hover. */
   position: absolute;
   inset: 0;
-  z-index: -1;
+  z-index: -2;
   transform-origin: center;
   will-change: transform;
   background:  radial-gradient(var(--tint0) 0%, var(--tint) 30%, var(--tint1) 100%);
@@ -322,6 +316,28 @@ canvas {
   mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
   -webkit-backdrop-filter: url(#glassWarp);
   backdrop-filter: url(#glassWarp);
+}
+
+/* hover preview: a clip that trails the cursor over the project clouds
+   (Cassette Jury / Santa Beer / Flaneur). GSAP drives x/y + opacity/scale;
+   this only sets the static look + centers it on its own x/y via transform. */
+.cloud-preview {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: min(320px, 26vw);
+  z-index: 40;
+  pointer-events: none;
+  border-radius: 14px;
+  overflow: hidden;
+  opacity: 0;
+  box-shadow: 0 20px 50px rgba(8, 30, 36, 0.38), 0 0 0 1px rgba(255, 255, 255, 0.28);
+  will-change: transform, opacity;
+}
+.cloud-preview img {
+  display: block;
+  width: 100%;
+  height: auto;
 }
 
 /* per-section cloud placement (tuned to the mockups; refined in Phase 5) */
@@ -378,6 +394,7 @@ canvas {
     flex-direction: column;
     gap: 16px;
     pointer-events: none;
+    z-index: 2; /* conversation bubbles sit above the content cloud */
   }
   .cchat .cbubble {
     width: auto;
@@ -390,6 +407,15 @@ canvas {
   }
   .cchat .cbubble.octopus {
     align-self: flex-end;
+  }
+  /* the desktop ::before caps (border-width 95px + inset -22px) are sized for
+     the fixed ~220px desktop bubble; against a mobile hug-content box (as
+     narrow as a single word) they overflow the text by hundreds of px,
+     reading as one giant shapeless blob instead of a pill hugging the text.
+     Scale both down to match the smaller box. */
+  .cchat .cbubble::before {
+    inset: -5px -9px;
+    border-width: 9px 28px;
   }
 
   /* clouds go full-width using the portrait mobile silhouette */
@@ -562,6 +588,45 @@ canvas {
   opacity: 0.95;
 }
 
+.loader-enter {
+  display: block;
+  margin: 1.8em auto 0;
+  padding: 0.85em 2.6em;
+  font-family: var(--mono);
+  font-size: clamp(11px, 1.15vw, 13px);
+  letter-spacing: 0.3em;
+  text-transform: uppercase;
+  color: #f4fbf9;
+  background: rgba(244, 251, 249, 0.1);
+  border: 1px solid rgba(244, 251, 249, 0.55);
+  border-radius: 999px;
+  cursor: pointer;
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
+  animation: loader-enter-in 0.5s ease both;
+}
+.loader-enter:hover,
+.loader-enter:focus-visible {
+  background: rgba(244, 251, 249, 0.22);
+  border-color: rgba(244, 251, 249, 0.9);
+  transform: translateY(-1px);
+}
+.loader-enter:active {
+  transform: translateY(0);
+}
+
+@keyframes loader-enter-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   /* keep a static wavy waterline; just drop the bubbles */
   .loader-bubble {
@@ -581,6 +646,7 @@ canvas {
   pointer-events: none;
 }
 .sidebar {
+  z-index:8;
   -webkit-mask-size: 100% 100%;
   mask-size: 100% 100%;
   -webkit-mask-repeat: no-repeat;
@@ -588,7 +654,7 @@ canvas {
   -webkit-mask-position: center;
   mask-position: center;
   background: var(--noise-bg), var(--glass-bg);
-  background-blend-mode: overlay, normal;
+  background-blend-mode: add, normal;
   background-repeat: repeat, no-repeat;
   background-size: 220px 220px, 100% 100%;
   -webkit-backdrop-filter: var(--glass-blur);
@@ -625,6 +691,7 @@ canvas {
   right: 3vh;
   width: 22vh;
   pointer-events: none;
+  transition: opacity 0.3s ease;
 }
 .menu a {
   display: block;
@@ -660,6 +727,15 @@ body:not(.nav-open) .sidebar-refract,
 body:not(.nav-open) .sidebar-rim,
 body:not(.nav-open) .menu {
   transform: translateX(112%);
+}
+/* the slide alone still leaves the menu's text-shadow glow bleeding past the
+   viewport edge (nowrap labels + a 12px shadow blur outlive the translate) —
+   opacity + disabling pointer-events on the links fully hides/disables it. */
+body:not(.nav-open) .menu {
+  opacity: 0;
+}
+body:not(.nav-open) .menu a {
+  pointer-events: none;
 }
 
 .nav-toggle {

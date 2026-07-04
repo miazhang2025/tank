@@ -73,6 +73,8 @@ export default function Stage({ scene, active }) {
       const a = stage[STAGE_ORDER[i]];
       const b = stage[STAGE_ORDER[i + 1]];
       const c = scene.controls;
+      const ai = Math.round(P);
+      c.activeSection = STAGE_ORDER[ai];
       c.cameraZ = lerp(a.cameraZ, b.cameraZ, f);
       c.creatures.axolotl.sx = lerp(a.axolotl.sx, b.axolotl.sx, f);
       c.creatures.axolotl.sy = lerp(a.axolotl.sy, b.axolotl.sy, f);
@@ -91,7 +93,6 @@ export default function Stage({ scene, active }) {
 
       // publish the snapped section index (drives bubble reveal) without
       // re-rendering on every scroll frame
-      const ai = Math.round(P);
       if (ai !== activeRef.current) {
         activeRef.current = ai;
         setActiveIndex(ai);
@@ -157,7 +158,6 @@ export default function Stage({ scene, active }) {
               layerRefs.current[k] = el;
             }}
           >
-            {s.title && <h2 className="section-title">{s.title}</h2>}
             <Section
               scene={scene}
               index={k}
@@ -165,6 +165,7 @@ export default function Stage({ scene, active }) {
               data={s}
               mobile={mobile}
               progressRef={progressRef}
+              active={active}
             />
           </div>
         ))}

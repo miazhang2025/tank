@@ -57,17 +57,16 @@ export const SECTIONS = [
     id: 'about',
     title: 'About',
     chat: [
-      { who: 'axolotl', text: 'So, what is AQUARIA?' },
+      { who: 'axolotl', text: 'So, what is CRESHE?' },
       { who: 'octopus', text: 'A tank. Two of us live in it — the octopus and the axolotl.' },
-      { who: 'axolotl', text: 'A creative studio. We make small weird things. The tank is real.' },
+      { who: 'axolotl', text: 'A new media studio. We make small weird things. The tank is real.' },
       { who: 'octopus', text: 'What do we make?' },
-      { who: 'axolotl', text: 'Brands. Stories. The occasional creature you can poke in a browser.' },
-      // { who: 'octopus', text: 'How to work with us?' },
+      { who: 'axolotl', text: 'Brands. Stories. The occasional creature you can poke in a browser.' }
       // { who: 'axolotl', text: 'Knock on the glass.' },
     ],
     content: {
       heading: null,
-      body: 'AQUARIA is a new media studio. It makes small, weird things — interactive things, video things, story things.',
+      body: 'CRECHE is a new media studio. It makes small, weird things — interactive things, video things, story things.',
       button: null,
     },
   },
@@ -76,6 +75,7 @@ export const SECTIONS = [
     id: 'cassette-jury',
     title: 'Cassette Jury',
     chat: [
+    
       { who: 'axolotl', text: 'Whenever we cannot decide on a thing...' },
       { who: 'octopus', text: 'We fight.' },
     ],
@@ -84,7 +84,7 @@ export const SECTIONS = [
       body:
         'Cassette Jury is a pocket jury for your creative decision-making. It is a panel of AI-simulated characters — each with their own job, taste, and agenda — who act as your on-demand jury when you hit a creative deadlock. Submit an open-ended question, watch them deliberate, get a verdict.\n\n' +
         'It is not a serious research tool. It is a delightful, slightly absurd alternative to running user tests or polling colleagues when you have no time or budget to do so. The product sits at the intersection of creative tooling and playful entertainment.',
-      button: { label: 'Talk with the Jury.', href: 'https://cassettejury.farm/' },
+      button: { label: 'Ask the Jury.', href: 'https://cassettejury.farm/' },
     },
   },
 
@@ -127,7 +127,7 @@ export const SECTIONS = [
 ];
 
 /** Brand wordmark shown top-left on every section. */
-export const WORDMARK = 'AQUARIA.TANK';
+export const WORDMARK = 'CRECHE / the tank';
 
 /** Sidebar menu — label + the section id it scrolls to. */
 export const MENU = [

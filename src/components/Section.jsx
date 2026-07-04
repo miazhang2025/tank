@@ -26,14 +26,33 @@ const REDUCE =
  * @param {object}  props.data
  * @param {boolean} props.mobile
  * @param {{current:number}} props.progressRef  continuous fractional section index
+ * @param {boolean} props.active  scrolling/reveal enabled (true once the intro settles)
  */
-export default function Section({ scene, index, activeIndex, data, mobile, progressRef }) {
+export default function Section({ scene, index, activeIndex, data, mobile, progressRef, active }) {
   const rootRef = useRef(null);
   const axRef = useRef(null);
   const ocRef = useRef(null);
+  const titleRef = useRef(null);
   const revealedRef = useRef(0);
   const isActive = activeIndex === index;
   const near = Math.abs(activeIndex - index) <= 1;
+
+  // section title fades + slides in on arrival, out on departure — same
+  // entrance language as the content cloud (fromTo opacity/offset).
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return undefined;
+    gsap.killTweensOf(el);
+    if (isActive) {
+      gsap.fromTo(
+        el,
+        { opacity: 0, y: -22 },
+        { opacity: 1, y: 0, duration: REDUCE ? 0.4 : 0.9, ease: 'power3.out', delay: REDUCE ? 0 : 0.1 },
+      );
+    } else {
+      gsap.to(el, { opacity: 0, y: -14, duration: 0.35, ease: 'power2.in' });
+    }
+  }, [isActive]);
 
   const chat = data.chat || [];
   const hasCloud = !!data.content;
@@ -47,7 +66,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
   // unified loop while near-active: follow the creatures (desktop) + reveal
   // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
   useEffect(() => {
-    if (!scene || !near) return undefined;
+    if (!scene || !near || !active) return undefined;
     const root = rootRef.current;
     if (!root) return undefined;
 
@@ -101,7 +120,17 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
           gsap.fromTo(
             older,
             { y: delta },
-            { y: 0, duration: REDUCE ? 0.25 : 0.55, ease: 'power3.out', overwrite: 'auto' },
+            {
+              y: 0,
+              duration: REDUCE ? 0.25 : 0.55,
+              ease: 'power3.out',
+              overwrite: 'auto',
+              // drop the leftover inline transform once settled: keeping it (even
+              // at an identity offset) pins the bubble to its own GPU layer, which
+              // makes Chromium render the text with grayscale AA instead of the
+              // normal subpixel AA — it reads lighter/thinner until deselected.
+              onComplete: () => older.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
+            },
           );
         }
         if (!el.classList.contains('spacer')) {
@@ -115,6 +144,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
               duration: REDUCE ? 0.3 : 0.55,
               ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
               overwrite: 'auto',
+              onComplete: () => gsap.set(el, { clearProps: 'transform' }),
             },
           );
         } else {
@@ -150,10 +180,17 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
             onComplete: drop,
           });
         if (older.length) {
+          const settled = older.slice(); // snapshot: `older` (visible[ci]) can still grow before onComplete fires
           gsap.fromTo(
             older,
             { y: -delta },
-            { y: 0, duration: 0.6, ease: 'power3.out', overwrite: 'auto' },
+            {
+              y: 0,
+              duration: 0.6,
+              ease: 'power3.out',
+              overwrite: 'auto',
+              onComplete: () => settled.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
+            },
           );
         }
       });
@@ -184,7 +221,13 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
             gsap.fromTo(
               older,
               { y: delta },
-              { y: 0, duration: REDUCE ? 0.25 : 0.55, ease: 'power3.out', overwrite: 'auto' },
+              {
+                y: 0,
+                duration: REDUCE ? 0.25 : 0.55,
+                ease: 'power3.out',
+                overwrite: 'auto',
+                onComplete: () => older.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
+              },
             );
           }
           if (!el.classList.contains('spacer')) {
@@ -198,6 +241,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
                 duration: REDUCE ? 0.3 : 0.55,
                 ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
                 overwrite: 'auto',
+                onComplete: () => gsap.set(el, { clearProps: 'transform' }),
               },
             );
           } else {
@@ -247,8 +291,8 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       if (m) {
         const P = progressRef.current;
         const now = performance.now() / 1000;
-        const active = Math.round(P) === index; // fully snapped/settled into this section
-        if (active && !wasActive) {
+        const atSection = Math.round(P) === index; // fully snapped/settled into this section
+        if (atSection && !wasActive) {
           // (re)start the conversation fresh from its first line on arrival —
           // also undo any DOM reordering a previous loop pass left behind, so
           // the stack renders in its original top-to-bottom order again
@@ -261,10 +305,10 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
               .forEach((el) => el.parentNode.appendChild(el));
           });
         }
-        wasActive = active;
+        wasActive = atSection;
 
         const shown = visible[0] ? visible[0].length : 0;
-        if (active && now - lastStep > gap) {
+        if (atSection && now - lastStep > gap) {
           if (shown < m) {
             revealNewest(); // still filling the stack for the first time
           } else if (index === 0) {
@@ -274,7 +318,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
           }
           lastStep = now;
           gap = nextGap(); // re-roll so the next pause is a different length too
-        } else if (!active && shown > 0 && now - lastStep > gap) {
+        } else if (!atSection && shown > 0 && now - lastStep > gap) {
           retireNewest(); // scrolled away: collapse newest-first
           lastStep = now;
           gap = nextGap();
@@ -290,7 +334,7 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       revealedRef.current = 0;
       colEls.forEach((els) => els.forEach(collapse));
     };
-  }, [scene, near, desktopChat, mobile]);
+  }, [scene, near, desktopChat, mobile, active]);
 
   const withOrder = chat.map((c, gi) => ({ ...c, gi }));
   const axolotl = withOrder.filter((c) => c.who === 'axolotl');
@@ -298,6 +342,11 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
   return (
     <div ref={rootRef} className="section-content">
+      {data.title && (
+        <h2 className="section-title" ref={titleRef} style={{ opacity: 0 }}>
+          {data.title}
+        </h2>
+      )}
       {desktopChat && axolotl.length > 0 && (
         <div className="cstack left" ref={axRef} style={{ opacity: 0 }}>
           {withOrder.map((c) =>
@@ -333,15 +382,23 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
       {mobileChat && chat.length > 0 && (
         <div className="cchat">
-          {withOrder.map((c) => (
-            <div className={`cbubble ${c.who}`} data-gi={c.gi} key={c.gi} style={{ opacity: 0, display: 'none' }}>
-              {c.text}
-            </div>
-          ))}
+          {withOrder.map((c) =>
+            c.who === 'axolotl' || c.who === 'octopus' ? (
+              <div className={`cbubble ${c.who}`} data-gi={c.gi} key={c.gi} style={{ opacity: 0, display: 'none' }}>
+                {c.text}
+              </div>
+            ) : (
+              // no bubble art for third-voice "regulars" beats — same as desktop,
+              // it reserves its slot silently instead of showing an unstyled box
+              <div className="cbubble spacer" data-gi={c.gi} aria-hidden="true" key={c.gi} style={{ display: 'none' }}>
+                {c.text}
+              </div>
+            ),
+          )}
         </div>
       )}
 
-      {showCloud && <ContentCloud content={data.content} active={isActive} />}
+      {showCloud && <ContentCloud content={data.content} active={isActive} id={data.id} />}
     </div>
   );
 }

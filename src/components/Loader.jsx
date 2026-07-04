@@ -18,13 +18,15 @@ const WAVE_FRONT = wavePath(6, 30, 66); // tighter, faster, the main surface
 
 /**
  * Filling-tank loading overlay. A wavy water level rises (GSAP) until the scene
- * reports its models are loaded (`ready`), then tops off, briefly overflows, and
- * fades to reveal the camera intro. The load has no real progress signal, so the
- * fill is indeterminate: it eases toward ~90% while assets decode, then rushes to
- * 100% the moment `ready` flips.
+ * reports its models are loaded (`ready`), then eases up near the brim and holds
+ * there behind an "Enter" button. Clicking it (`onEnter`) tops off to 100%,
+ * briefly overflows, and fades to reveal the camera intro. The load has no real
+ * progress signal, so the fill is indeterminate: it eases toward ~90% while
+ * assets decode, then ~97% once ready, then rushes to 100% on entry.
  */
-export default function Loader({ ready }) {
+export default function Loader({ ready, onEnter }) {
   const [gone, setGone] = useState(false);
+  const [entered, setEntered] = useState(false);
   const rootRef = useRef(null);
   const waterRef = useRef(null);
   const backRef = useRef(null);
@@ -33,7 +35,14 @@ export default function Loader({ ready }) {
   const levelRef = useRef({ v: 0 }); // 0 → 1 fill fraction (GSAP proxy)
   const applyRef = useRef(() => {});
   const idleRef = useRef(null);
+  const heldRef = useRef(false);
   const toppedRef = useRef(false);
+
+  const handleEnter = () => {
+    if (entered) return;
+    setEntered(true);
+    onEnter?.();
+  };
 
   const bubbles = useMemo(
     () =>
@@ -99,9 +108,23 @@ export default function Loader({ ready }) {
     return () => ctx.revert();
   }, []);
 
-  // scene ready → top off to 100%, overflow the tank, then fade out + unmount
+  // scene ready → ease up near the brim and hold there until the visitor clicks enter
   useEffect(() => {
-    if (!ready || toppedRef.current || !waterRef.current) return;
+    if (!ready || heldRef.current || !waterRef.current) return;
+    heldRef.current = true;
+    const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    idleRef.current?.kill();
+    gsap.to(levelRef.current, {
+      v: 0.97,
+      duration: reduce ? 0.3 : 1,
+      ease: 'power2.out',
+      onUpdate: applyRef.current,
+    });
+  }, [ready]);
+
+  // visitor clicks enter → top off to 100%, overflow the tank, then fade out + unmount
+  useEffect(() => {
+    if (!entered || toppedRef.current || !waterRef.current) return;
     toppedRef.current = true;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
     idleRef.current?.kill();
@@ -122,12 +145,12 @@ export default function Loader({ ready }) {
       reduce ? '>' : '<0.2',
     );
     return () => tl.kill();
-  }, [ready]);
+  }, [entered]);
 
   if (gone) return null;
 
   return (
-    <div ref={rootRef} className="loader" aria-hidden={ready ? 'true' : 'false'}>
+    <div ref={rootRef} className="loader" aria-hidden={entered ? 'true' : 'false'}>
       <div ref={waterRef} className="loader-water">
         <svg
           ref={backRef}
@@ -159,13 +182,20 @@ export default function Loader({ ready }) {
       </div>
 
       <div className="loader-brand">
-        <div className="loader-word">AQUARIA</div>
+        <div className="loader-word">CRECHE</div>
         <div className="loader-status">
-          <span className="loader-status-text">{ready ? 'topping off' : 'filling the tank'}</span>
+          <span className="loader-status-text">
+            {entered ? 'topping off' : ready ? 'ready' : 'filling the tank'}
+          </span>
           <span ref={pctRef} className="loader-pct">
             0%
           </span>
         </div>
+        {ready && !entered && (
+          <button type="button" className="loader-enter" onClick={handleEnter}>
+            Enter
+          </button>
+        )}
       </div>
     </div>
   );

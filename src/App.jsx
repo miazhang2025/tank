@@ -8,6 +8,7 @@ import Loader from './components/Loader.jsx';
 export default function App() {
   const [scene, setScene] = useState(null);
   const [ready, setReady] = useState(false);
+  const [entered, setEntered] = useState(false); // visitor clicked "Enter" on the loader
   const [active, setActive] = useState(false); // scrolling enabled once the intro settles
 
   // flip to ready once the scene's models have loaded
@@ -18,8 +19,9 @@ export default function App() {
 
   // top→bottom camera drop, revealed as the loader dissolves
   useEffect(() => {
-    if (!ready || !scene) return;
+    if (!entered || !scene) return;
     const reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    scene.burstFromBottom(reduce ? 100 : 320, reduce ? 900 : 2200);
     const tw = gsap.to(scene.controls, {
       introY: 0,
       duration: reduce ? 0.6 : 2.6,
@@ -27,7 +29,7 @@ export default function App() {
       onComplete: () => setActive(true),
     });
     return () => tw.kill();
-  }, [ready, scene]);
+  }, [entered, scene]);
 
   return (
     <>
@@ -35,12 +37,12 @@ export default function App() {
       <Stage scene={scene} active={active} />
 
       <div className="ui">
-        <div className="t">AQUARIA.TANK</div>
+        <div className="t">CRESHE.TANK</div>
         <div className="h">We currently do not have an address yet, you can contact Mia at miazhang2025@gmail.com she can help us.</div>
       </div>
 
       <Sidebar scene={scene} />
-      <Loader ready={ready} />
+      <Loader ready={ready} onEnter={() => setEntered(true)} />
     </>
   );
 }

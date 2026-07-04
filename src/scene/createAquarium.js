@@ -37,6 +37,7 @@ export function createAquarium(container, opts = {}) {
     introY: 1, // 1 = camera parked high above (loader); 0 = settled into the main framing
     cameraZ: STAGE.main.cameraZ, // base camera z (scroll moves the camera along z)
     focusDist: FOCUS_DIST, // view-space depth of the focal plane (creatures + mouse bubbles)
+    activeSection: 'main', // nearest section id, kept in sync by Stage.jsx on scroll
     creatures: {
       axolotl: { sx: STAGE.main.axolotl.sx, sy: STAGE.main.axolotl.sy, scale: 1, opacity: 1 },
       octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 0.8, opacity: 1 },
@@ -317,14 +318,26 @@ export function createAquarium(container, opts = {}) {
   }
   const _a = new THREE.Vector3(),
     _b = new THREE.Vector3(),
-    _d = new THREE.Vector3();
+    _d = new THREE.Vector3(),
+    _e = new THREE.Vector3();
   const _q = new THREE.Quaternion(),
     _qs = new THREE.Quaternion();
   const _up = new THREE.Vector3(0, 1, 0),
     _dummy = new THREE.Object3D();
+  const _fishFwd = new THREE.Vector3();
   let fishGroups = []; // one InstancedMesh per model type: { mesh, list:[params] }
 
+  // fish spawn bounds keep them behind the focal plane for the camera's default
+  // range, but the camera itself moves on scroll and the schooling motion can
+  // still drift a fish toward the near edge of its path — so on top of that,
+  // clamp every fish's depth-from-camera each frame to a hard floor, guaranteeing
+  // it never renders in front of the axolotl / octopus (which sit at focusDist).
+  const FISH_MIN_DEPTH_MARGIN = 0.8;
+
   function updateFish(t) {
+    camera.updateMatrixWorld(true);
+    camera.getWorldDirection(_fishFwd);
+    const minDepth = controls.focusDist + FISH_MIN_DEPTH_MARGIN;
     for (const g of fishGroups) {
       const list = g.list;
       for (let i = 0; i < list.length; i++) {
@@ -338,6 +351,8 @@ export function createAquarium(container, opts = {}) {
         } else _q.identity();
         _qs.setFromAxisAngle(_up, Math.sin(t * p.tspd + p.tph) * 0.16); // gentle swim sway
         _q.multiply(_qs);
+        const depth = _fishFwd.dot(_e.copy(_a).sub(camera.position));
+        if (depth < minDepth) _a.addScaledVector(_fishFwd, minDepth - depth);
         _dummy.position.copy(_a);
         _dummy.quaternion.copy(_q);
         _dummy.scale.setScalar(p.s);
@@ -534,14 +549,15 @@ export function createAquarium(container, opts = {}) {
   // Front-facing yaws + a screen-z roll (the axolotl model ships flipped 180°).
   // Overridable via ?ay=<rad>&oy=<rad> for re-tuning if models are swapped.
   const _qp = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
-  const _ay = _qp.has('ay') ? parseFloat(_qp.get('ay')) : -Math.PI / 2;
-  const _oy = _qp.has('oy') ? parseFloat(_qp.get('oy')) : -Math.PI / 2;
+  const _ay = _qp.has('ay') ? parseFloat(_qp.get('ay')) : -Math.PI / 2 + 0.2;
+  const _oy = _qp.has('oy') ? parseFloat(_qp.get('oy')) : -Math.PI / 2 - 0.2;
   const creatureState = {
     axolotl: {
       obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
       phase: 0.0, yaw: _ay, roll: 0,
       mixer: null, idle: null, swim: null, swimBlend: 0,
+      hit: { active: false, t: 0, dur: 0.4, dirSign: 1 },
     },
     octopus: {
       obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
@@ -549,6 +565,26 @@ export function createAquarium(container, opts = {}) {
       phase: 2.1, yaw: _oy, roll: 0,
       mixer: null, idle: null, swim: null, swimBlend: 0,
     },
+  };
+
+  // ---------- cassette-jury only: octopus randomly turns + strikes the axolotl ----------
+  // Reuses the octopus's existing "swim" slot, which is already bound to its
+  // GLB's rigged "Attack" clip (see loadCreatures below) — no procedural pose,
+  // just a deliberate one-shot trigger instead of the movement-driven blend.
+  // The axolotl has no reaction clip, so its "hit" is a small procedural
+  // knockback + wobble layered onto its normal position/roll.
+  const attackFX = {
+    phase: 'idle', // idle -> turning -> striking -> returning -> idle
+    timer: rand(3, 6), // seconds until the next attempt, counted down while idle in-section
+    t: 0,
+    dx: 0,
+    baseYaw: 0,
+    turnYaw: 0,
+    currentYaw: 0,
+    turnDur: 0.45,
+    strikeDur: 0.8,
+    hitAt: 0.35,
+    hitFired: false,
   };
 
   // map a normalised screen point (sx,sy) at view depth d to a world position
@@ -565,10 +601,103 @@ export function createAquarium(container, opts = {}) {
     _proj = new THREE.Vector3(),
     _cfwd = new THREE.Vector3();
 
+  // drives attackFX's state machine; called once per frame, before the per-creature loop
+  function stepAttackFX(dt) {
+    const octo = creatureState.octopus,
+      axo = creatureState.axolotl;
+    const fx = attackFX;
+    if (!octo.obj || !axo.obj) return;
+    const inSection = controls.activeSection === 'cassette-jury';
+
+    if (!inSection) {
+      if (fx.phase !== 'idle') {
+        fx.phase = 'idle';
+        fx.t = 0;
+        fx.timer = rand(3, 6);
+        if (octo.swim) {
+          octo.swim.setLoop(THREE.LoopRepeat, Infinity);
+          octo.swim.clampWhenFinished = false;
+        }
+        axo.hit.active = false;
+      }
+      return;
+    }
+
+    const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
+
+    switch (fx.phase) {
+      case 'idle': {
+        fx.timer -= dt;
+        if (fx.timer <= 0 && octo.swim) {
+          fx.dx = axo.base.x - octo.base.x; // which side the axolotl is on
+          fx.baseYaw = octo.yaw;
+          fx.turnYaw = octo.yaw + (fx.dx < 0 ? -0.6 : 0.6); // turn toward it
+          fx.currentYaw = fx.baseYaw;
+          fx.t = 0;
+          fx.phase = 'turning';
+        }
+        break;
+      }
+      case 'turning': {
+        fx.t += dt;
+        const p = Math.min(1, fx.t / fx.turnDur);
+        fx.currentYaw = fx.baseYaw + (fx.turnYaw - fx.baseYaw) * easeInOut(p);
+        if (p >= 1) {
+          fx.t = 0;
+          fx.hitFired = false;
+          fx.phase = 'striking';
+          octo.swim.setLoop(THREE.LoopOnce, 1);
+          octo.swim.clampWhenFinished = true;
+          octo.swim.reset();
+          octo.swim.play();
+          fx.strikeDur = octo.swim.getClip().duration || 0.8;
+          fx.hitAt = fx.strikeDur * 0.4; // moment the tentacle actually reaches the axolotl
+        }
+        break;
+      }
+      case 'striking': {
+        fx.t += dt;
+        const fadeT = 0.15;
+        const e = Math.min(1, fx.t / fadeT);
+        if (octo.idle) octo.idle.setEffectiveWeight(1 - e);
+        if (octo.swim) octo.swim.setEffectiveWeight(e);
+        if (!fx.hitFired && fx.t >= fx.hitAt) {
+          fx.hitFired = true;
+          axo.hit.active = true;
+          axo.hit.t = 0;
+          axo.hit.dirSign = fx.dx < 0 ? -1 : 1; // knock the axolotl further away from the octopus
+        }
+        if (fx.t >= fx.strikeDur) {
+          fx.t = 0;
+          fx.phase = 'returning';
+        }
+        break;
+      }
+      case 'returning': {
+        fx.t += dt;
+        const p = Math.min(1, fx.t / fx.turnDur);
+        const e = easeInOut(p);
+        fx.currentYaw = fx.turnYaw + (fx.baseYaw - fx.turnYaw) * e;
+        if (octo.idle) octo.idle.setEffectiveWeight(e);
+        if (octo.swim) octo.swim.setEffectiveWeight(1 - e);
+        if (p >= 1) {
+          octo.swim.setLoop(THREE.LoopRepeat, Infinity);
+          octo.swim.clampWhenFinished = false;
+          fx.phase = 'idle';
+          fx.timer = rand(4, 8);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
   function updateCreatures(t, dt) {
     camera.updateMatrixWorld(true);
     camera.getWorldDirection(_cfwd); // view axis: creatures get pushed back along it
     const k = Math.min(1, dt * 6); // smoothing toward target anchor (swim)
+    stepAttackFX(dt);
     for (const id of ['axolotl', 'octopus']) {
       const st = creatureState[id];
       if (st.mixer) st.mixer.update(dt);
@@ -599,15 +728,31 @@ export function createAquarium(container, opts = {}) {
       const speed = st.prev.distanceTo(st.base) / Math.max(dt, 1e-3);
       const target = speed > 0.5 ? 1 : 0;
       st.swimBlend += (target - st.swimBlend) * Math.min(1, dt * 3.5);
-      if (st.idle && st.swim) {
+      // during the cassette-jury attack sequence, stepAttackFX drives the
+      // octopus's idle/swim weights directly — don't fight it with the
+      // movement-based blend above
+      if (st.idle && st.swim && !(id === 'octopus' && attackFX.phase !== 'idle')) {
         st.swim.setEffectiveWeight(st.swimBlend);
         st.idle.setEffectiveWeight(1 - st.swimBlend);
       }
       const bob = Math.sin(t * 1.1 + st.phase) * 0.04;
-      st.obj.position.set(st.base.x, st.base.y + bob, st.base.z);
+      // the axolotl has no reaction clip, so a hit is a small procedural
+      // knockback + wobble decaying over st.hit.dur
+      let hitX = 0,
+        hitRoll = 0;
+      if (id === 'axolotl' && st.hit.active) {
+        st.hit.t += dt;
+        const hp = Math.min(1, st.hit.t / st.hit.dur);
+        const decay = 1 - hp;
+        hitX = Math.sin(hp * Math.PI) * 0.22 * st.hit.dirSign * decay;
+        hitRoll = Math.sin(hp * Math.PI * 3) * 0.18 * decay;
+        if (hp >= 1) st.hit.active = false;
+      }
+      st.obj.position.set(st.base.x + hitX, st.base.y + bob, st.base.z);
       st.obj.scale.setScalar(S * sizeComp);
-      st.obj.rotation.z = st.roll; // screen-z flip
-      if (st.inner) st.inner.rotation.set(0, st.yaw + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
+      st.obj.rotation.z = st.roll + hitRoll; // screen-z flip (+ hit wobble)
+      const yawNow = id === 'octopus' && attackFX.phase !== 'idle' ? attackFX.currentYaw : st.yaw;
+      if (st.inner) st.inner.rotation.set(0, yawNow + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
       for (const m of st.mats) m.uniforms.uOpacity.value = cc.opacity;
       st.obj.visible = cc.opacity > 0.01;
       // screen anchor just above the head, for the DOM conversation bubbles
@@ -741,8 +886,10 @@ export function createAquarium(container, opts = {}) {
       }`,
   });
 
-  // bubbles: emitted only while the cursor moves; they swirl upward and shrink as they rise
-  const NB = 340;
+  // bubbles: emitted only while the cursor moves (plus the entry burst); they
+  // swirl upward and shrink as they rise. Sized with headroom above the entry
+  // burst's count so it doesn't recycle (and cut short) still-rising bubbles.
+  const NB = 520;
   const bGeo = new THREE.BufferGeometry();
   const bPos = new Float32Array(NB * 3),
     bVel = new Float32Array(NB * 3);
@@ -817,6 +964,28 @@ export function createAquarium(container, opts = {}) {
   function burst(x, y) {
     pointerWorld(x, y);
     for (let n = 0; n < 22; n++) emitBubble(pWorld.x, pWorld.y, pWorld.z, true);
+  }
+
+  // entrance effect: a wave of bubbles streaming up from across the bottom
+  // edge, spread over `duration` ms — same emitBubble() as the cursor trail,
+  // so lifecycle/size/swirl force all match.
+  function burstFromBottom(total = 320, duration = 2200) {
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    const start = performance.now();
+    let emitted = 0;
+    const wave = () => {
+      if (disposed) return;
+      const elapsed = performance.now() - start;
+      const target = Math.min(total, Math.floor((elapsed / duration) * total));
+      while (emitted < target) {
+        pointerWorld(rand(0, w), h - rand(0, 50));
+        emitBubble(pWorld.x, pWorld.y, pWorld.z, Math.random() < 0.4);
+        emitted++;
+      }
+      if (elapsed < duration) requestAnimationFrame(wave);
+    };
+    wave();
   }
 
   const onMouseMove = (e) => onMove(e.clientX, e.clientY);
@@ -1081,7 +1250,8 @@ export function createAquarium(container, opts = {}) {
    *   controls: object,   // mutate to drive camera (introY, cameraZ) + creatures (sx,sy,scale,opacity)
    *   anchors: object,    // live screen-px anchor above each creature's head (for DOM bubbles)
    *   whenReady: (cb: () => void) => void, // fires once fish + both creatures have loaded
+   *   burstFromBottom: (total?: number, duration?: number) => void, // entry bubble wave
    * }}
    */
-  return { dispose, renderer, controls, anchors, whenReady };
+  return { dispose, renderer, controls, anchors, whenReady, burstFromBottom };
 }
