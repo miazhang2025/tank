@@ -1,7 +1,24 @@
+/* display face: local single-weight OTF (public/Quedami.otf) — all headings.
+   font-display: swap so headings render in the fallback until it decodes;
+   Stage.jsx refreshes ScrollTrigger once fonts land. */
+@font-face {
+  font-family: "Quedami";
+  src: url("/Quedami.otf") format("opentype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+  /* This build of Quedami is a demo: every Latin-1 accented glyph (â, è, é …)
+     is replaced by a "NöDNL Studio" watermark scribble instead of the real
+     letter. Exclude that block so accented characters (the â in "Flâneur")
+     fall back to Helvetica/Arial and stay legible — swap in the licensed cut
+     and this line can go. */
+
+}
+
 :root {
   /* ---- type families ---- */
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; /* dialogue / buttons */
-  --display: "Darker Grotesque", "Helvetica Neue", Arial, sans-serif; /* headings */
+  --display: "Quedami", "Helvetica Neue", Arial, sans-serif; /* headings */
   --serif: "Crimson Text", Georgia, "Times New Roman", serif; /* long-form body */
 
   /* ---- brand palette (from swatch) ---- */
@@ -101,7 +118,7 @@ canvas {
   left: 3vw;
   margin: 0;
   font-family: var(--display);
-  font-weight: 300; /* Darker Grotesque, lightest */
+  font-weight: normal; /* Quedami ships a single weight */
   font-size: clamp(52px, 8.4vw, 72px);
   line-height: 0.9;
   letter-spacing: 0.004em;
@@ -242,7 +259,7 @@ canvas {
 }
 .cloud-heading {
   font-family: var(--display);
-  font-weight: 300; /* Darker Grotesque, lightest */
+  font-weight: normal; /* Quedami ships a single weight */
   font-size: clamp(30px, 3.9vw, 56px);
   line-height: 1;
   color: #2c2c2c; /* solid, full opacity */
@@ -562,7 +579,7 @@ canvas {
 }
 .loader-word {
   font-family: var(--display);
-  font-weight: 300; /* Darker Grotesque, lightest */
+  font-weight: normal; /* Quedami ships a single weight */
   font-size: clamp(56px, 13vw, 150px);
   letter-spacing: 0.05em;
   line-height: 0.9;

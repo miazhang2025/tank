@@ -195,6 +195,23 @@ pattern, extended to the other 3 surfaces as `::before` base glass + `::after` S
   the glass reads very airy; the text halo keeps copy legible. Dial `--glass-bg`
   alpha up if you want the panels more solid.
 
+## Revisions — round 3 (section prop models)
+- Cassette Jury / Santa Beer / Flâneur no longer show their content cloud on arrival:
+  each section's **3D prop model** (`public/models/<section-id>.glb`) drops in from
+  above the frame instead — accelerating fall with a bubble wake, splash burst, and a
+  damped settle bob — landing where the cloud used to sit (`prop:` anchors in
+  `choreography.js`, desktop + mobile variants, all three at `yaw: -π/2`).
+- The prop is interactive: hover = pointer cursor + slight grow + tilt toward the
+  cursor; **clicking it opens the content cloud** (all existing cloud hover features
+  intact — GIF preview trail, magnetic CTA). Clicking/tapping anywhere outside the
+  cloud closes it, and every re-entry into the section starts closed.
+- Plumbing: `createAquarium.js` loads/animates the props (`updateProps`) and exposes
+  `propClickHandlers`; `Stage.jsx` bridges the breakpoint-aware `prop` anchor into
+  `controls.propAnchor`; `Section.jsx` owns the `cloudOpen` state; `ContentCloud`
+  gained an `interactive` flag so the closed cloud never eats the model's events.
+- Verified with Playwright on desktop (1440×900) + mobile (375×812): open/close,
+  re-entry reset, per-section drop replay, no console errors.
+
 ## E. How to feed in your content (after framework)
 - **Dialogue / copy:** edit `src/content/sections.js` (each section's `chat[]`, `content.heading/body/button`). Width is fixed, height auto — just write text.
 - **Models:** drop GLBs in `public/models/` (current: `axolotl.glb`, `octopus.glb`, fish `red.glb` + `white fish.glb`). Creature front-facing yaws live in `createAquarium.js` (axolotl π/4, octopus 3π/4) — re-tune via `?ay=&oy=` if you swap models.

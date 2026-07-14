@@ -1,10 +1,15 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import ContentCloud from './ContentCloud.jsx';
 
 const REDUCE =
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+// Sections whose content cloud is replaced by a clickable 3D prop model (see
+// createAquarium's prop block): the cloud starts CLOSED on every entry and
+// only opens when the model is clicked; clicking anywhere outside closes it.
+const PROP_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
 
 /**
  * One section's DOM content. Two layouts:
@@ -62,6 +67,36 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
   const desktopChat = !mobile;
   const mobileChat = mobile && (!hasCloud || data.id === 'about');
   const showCloud = hasCloud && (desktopChat || cloudOnMobile);
+  const isPropSection = PROP_SECTIONS.has(data.id);
+  const [cloudOpen, setCloudOpen] = useState(false);
+
+  // clicking the section's 3D prop opens the cloud — the scene raycasts the
+  // model on mousedown/touchstart and fires the callback registered here
+  useEffect(() => {
+    if (!scene || !isPropSection || !scene.propClickHandlers) return undefined;
+    scene.propClickHandlers[data.id] = () => setCloudOpen(true);
+    return () => {
+      delete scene.propClickHandlers[data.id];
+    };
+  }, [scene, isPropSection, data.id]);
+
+  // clicking anywhere outside the open cloud closes it. The pointerdown that
+  // OPENED it can't immediately close it: this listener only attaches on the
+  // render after cloudOpen flips, once that event is long finished.
+  useEffect(() => {
+    if (!cloudOpen) return undefined;
+    const onDown = (e) => {
+      if (e.target && e.target.closest && e.target.closest('.content-cloud')) return;
+      setCloudOpen(false);
+    };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [cloudOpen]);
+
+  // every (re)entry into the section starts with the cloud closed
+  useEffect(() => {
+    if (!isActive) setCloudOpen(false);
+  }, [isActive]);
 
   // unified loop while near-active: follow the creatures (desktop) + reveal
   // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
@@ -291,7 +326,11 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       if (m) {
         const P = progressRef.current;
         const now = performance.now() / 1000;
-        const atSection = Math.round(P) === index; // fully snapped/settled into this section
+        // fully snapped/settled into this section — also held off during the
+        // cinematic camera dive, whose scroll position settles (and
+        // Math.round(P) flips) well before the camera actually arrives, so
+        // bubbles don't silently advance behind the still-hidden layer
+        const atSection = Math.round(P) === index && !scene.controls.diveActive;
         if (atSection && !wasActive) {
           // (re)start the conversation fresh from its first line on arrival —
           // also undo any DOM reordering a previous loop pass left behind, so
@@ -398,7 +437,14 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
         </div>
       )}
 
-      {showCloud && <ContentCloud content={data.content} active={isActive} id={data.id} />}
+      {showCloud && (
+        <ContentCloud
+          content={data.content}
+          active={isPropSection ? isActive && cloudOpen : isActive}
+          id={data.id}
+          interactive={!isPropSection || cloudOpen}
+        />
+      )}
     </div>
   );
 }

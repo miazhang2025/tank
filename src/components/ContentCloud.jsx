@@ -20,8 +20,12 @@ const PREVIEWS = {
  * Frosted "thought bubble" holding a section's long-form content:
  * Darker Grotesque heading + Crimson Text body + IBM Plex Mono button.
  * Placement is per-section CSS (keyed off the parent layer's data-section).
+ *
+ * `interactive` (default true): prop-model sections keep the cloud mounted but
+ * closed — pointer-events must be off then, or the invisible cloud would eat
+ * the clicks/hover meant for the 3D model sitting behind it.
  */
-export default function ContentCloud({ content, active, id }) {
+export default function ContentCloud({ content, active, id, interactive = true }) {
   const ref = useRef(null);
   const btnRef = useRef(null);
   const shapeRef = useRef(null);
@@ -75,6 +79,11 @@ export default function ContentCloud({ content, active, id }) {
       }
     } else {
       gsap.to(el, { opacity: 0, y: 16, duration: 0.35, ease: 'power2.in' });
+      // the trailing GIF preview gets no mouseleave when the cloud closes
+      // under the cursor (pointer-events flip off) — hide it explicitly
+      if (previewRef.current) {
+        gsap.to(previewRef.current, { opacity: 0, scale: 0.82, duration: 0.25, ease: 'power2.in', overwrite: 'auto' });
+      }
     }
   }, [active, content]);
 
@@ -196,7 +205,11 @@ export default function ContentCloud({ content, active, id }) {
 
   return (
     <>
-      <div className="content-cloud" ref={ref} style={{ opacity: 0 }}>
+      <div
+        className="content-cloud"
+        ref={ref}
+        style={{ opacity: 0, pointerEvents: interactive ? undefined : 'none' }}
+      >
         <div className="cloud-inner">
           {heading && <h3 className="cloud-heading">{heading}</h3>}
           <div className="cloud-body">

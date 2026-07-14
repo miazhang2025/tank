@@ -31,13 +31,25 @@ export function createAquarium(container, opts = {}) {
   const FOG_DENSITY = 0.055;
   const NEAR = 0.1,
     FAR = 70.0;
+  // sections with stageLight:1 in choreography.js (the dive sequence) — kept
+  // as a literal set here since it's just used to hide the water surface
+  const STAGE_LIGHT_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
 
   // ---------- live control bridge (GSAP / React mutate these; tick() reads them) ----------
+  const [_envR0, _envG0, _envB0] = [
+    ((STAGE.main.envColor ?? FOG_COLOR.getHex()) >> 16 & 255) / 255,
+    ((STAGE.main.envColor ?? FOG_COLOR.getHex()) >> 8 & 255) / 255,
+    ((STAGE.main.envColor ?? FOG_COLOR.getHex()) & 255) / 255,
+  ];
   const controls = {
     introY: 1, // 1 = camera parked high above (loader); 0 = settled into the main framing
     cameraZ: STAGE.main.cameraZ, // base camera z (scroll moves the camera along z)
+    camY: STAGE.main.camY ?? 0, // per-stage vertical camera offset (world y) — sinks the rig down
     focusDist: FOCUS_DIST, // view-space depth of the focal plane (creatures + mouse bubbles)
     activeSection: 'main', // nearest section id, kept in sync by Stage.jsx on scroll
+    propAnchor: null, // active section's prop-model anchor {sx,sy,scale,yaw} — set by Stage.jsx (breakpoint-aware), null when the section has none
+    envR: _envR0, envG: _envG0, envB: _envB0, // per-stage environment/fog tint (0..1 channels)
+    stageLight: STAGE.main.stageLight ?? 0, // 0..1 "lit stage" mood: dimmer + overhead spotlight
     creatures: {
       axolotl: { sx: STAGE.main.axolotl.sx, sy: STAGE.main.axolotl.sy, scale: 1, opacity: 1 },
       octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 0.8, opacity: 1 },
@@ -68,18 +80,27 @@ export function createAquarium(container, opts = {}) {
   const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, NEAR, FAR);
   const CAM_BASE = new THREE.Vector3(0, -1.7, 9.4);
   const CAM_TARGET = new THREE.Vector3(0, -0.1, -1.0);
+  // how much of the camera's vertical dive (controls.camY) the look-at target
+  // follows — see the tilt-vs-DOF comment at its use in tick()
+  const CAM_TARGET_FOLLOW = 0.72;
+  const _lookTarget = new THREE.Vector3();
   camera.position.copy(CAM_BASE);
   camera.lookAt(CAM_TARGET);
 
   // ---------- lights: warm key from the left, cool fill from the right ----------
-  scene.add(new THREE.HemisphereLight(0x8fdcef, 0x07302e, 0.55));
+  const hemi = new THREE.HemisphereLight(0x8fdcef, 0x07302e, 0.55);
+  scene.add(hemi);
   const key = new THREE.DirectionalLight(0xffe6c2, 1.3); // warm window light, left
   key.position.set(-7, 9, 3);
   scene.add(key);
   const fill = new THREE.DirectionalLight(0x74d2e2, 0.45); // cool fill, right
   fill.position.set(6, 4, 6);
   scene.add(fill);
-  scene.add(new THREE.AmbientLight(0x115560, 0.42));
+  const ambient = new THREE.AmbientLight(0x115560, 0.42);
+  scene.add(ambient);
+  // base intensities scaled by controls.stageLight each frame (see tick()) to
+  // dim the tank for the cassette-jury/santa-beer/flaneur "lit stage" mood
+  const BASE_LIGHT_INTENSITY = { hemi: hemi.intensity, key: key.intensity, fill: fill.intensity, ambient: ambient.intensity };
 
   // ---------- floor (caustic light net) ----------
   function causticMat(litHex) {
@@ -91,6 +112,7 @@ export function createAquarium(container, opts = {}) {
         uLit: { value: new THREE.Color(litHex) },
         uFogColor: { value: FOG_COLOR.clone() },
         uFogDensity: { value: FOG_DENSITY },
+        uDim: { value: 1 }, // 1 = normal; dimmed toward stageLight sections
       },
       vertexShader: /* glsl */ `
         varying vec3 vWorld; varying float vDepth;
@@ -103,12 +125,13 @@ export function createAquarium(container, opts = {}) {
         NOISE +
         /* glsl */ `
         varying vec3 vWorld; varying float vDepth;
-        uniform float uTime, uFogDensity; uniform vec3 uDeep, uLit, uFogColor;
+        uniform float uTime, uFogDensity, uDim; uniform vec3 uDeep, uLit, uFogColor;
         void main(){
           vec2 uv = vWorld.xz * 0.14;
           float c = caustic(uv, uTime);
           vec3 col = mix(uDeep, uLit, clamp(c*0.95,0.0,1.0));
           col += vec3(0.4,0.5,0.45) * pow(clamp(c-0.6,0.0,1.0),1.5) * 0.8;
+          col *= uDim;
           float f = 1.0 - exp(-uFogDensity*uFogDensity*vDepth*vDepth);
           col = mix(col, uFogColor, clamp(f,0.0,1.0));
           gl_FragColor = vec4(col,1.0);
@@ -145,6 +168,7 @@ export function createAquarium(container, opts = {}) {
       uWarm: { value: new THREE.Color(0xffe2b0) },
       uFogColor: { value: FOG_COLOR.clone() },
       uFogDensity: { value: FOG_DENSITY * 0.7 },
+      uDim: { value: 1 },
     },
     vertexShader: /* glsl */ `
       varying vec3 vWorld; varying float vDepth;
@@ -154,7 +178,7 @@ export function createAquarium(container, opts = {}) {
       NOISE +
       /* glsl */ `
       varying vec3 vWorld; varying float vDepth;
-      uniform float uTime, uFogDensity; uniform vec3 uCam, uDeep, uBright, uWarm, uFogColor;
+      uniform float uTime, uFogDensity, uDim; uniform vec3 uCam, uDeep, uBright, uWarm, uFogColor;
       void main(){
         vec2 uv = vWorld.xz * 0.09;
         float ripple = fbm(uv*1.6 + uTime*0.12);
@@ -167,6 +191,7 @@ export function createAquarium(container, opts = {}) {
         // warm window glint biased to the left (-x)
         float lg = clamp((-vWorld.x + 2.0)/13.0, 0.0, 1.0);
         col += uWarm * lg * (0.35 + net*0.6) * 0.7;
+        col *= uDim;
         float f = 1.0 - exp(-uFogDensity*uFogDensity*vDepth*vDepth);
         col = mix(col, uFogColor, clamp(f,0.0,1.0));
         gl_FragColor = vec4(col,1.0);
@@ -189,17 +214,18 @@ export function createAquarium(container, opts = {}) {
       uPhase: { value: 0 },
       uColor: { value: new THREE.Color(1, 1, 1) },
       uInten: { value: 0.3 },
+      uStreak: { value: 1 }, // 1 = full watery turbulence; lower = a cleaner, more solid-looking beam
     },
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
     fragmentShader:
       NOISE +
       /* glsl */ `
-      varying vec2 vUv; uniform float uTime,uPhase,uInten; uniform vec3 uColor;
+      varying vec2 vUv; uniform float uTime,uPhase,uInten,uStreak; uniform vec3 uColor;
       void main(){
         float v = smoothstep(0.0,1.0,vUv.y);
         float streak = fbm(vec2(vUv.x*3.5 + uPhase, vUv.y*0.6 - uTime*0.05));
         float edge = smoothstep(0.0,0.18,vUv.x)*smoothstep(0.0,0.18,1.0-vUv.x);
-        float a = v*(0.18+0.55*streak)*edge;
+        float a = v*(0.18+0.55*streak*uStreak)*edge;
         gl_FragColor = vec4(uColor, a*uInten);
       }`,
   });
@@ -218,10 +244,42 @@ export function createAquarium(container, opts = {}) {
     m.uniforms.uInten.value = cf.i;
     const s = new THREE.Mesh(new THREE.PlaneGeometry(cf.w, 13.5), m);
     s.position.set(cf.x, 0.5, cf.z);
-    s.userData = { baseX: cf.x, sp: 0.18 + Math.random() * 0.18 };
+    // baseInten kept around so tick() can scale these down (not replace them)
+    // for the cassette-jury/santa-beer/flaneur stage look, which wants ONE
+    // clean overhead spot instead of this whole scattered multi-beam wash.
+    s.userData = { baseX: cf.x, sp: 0.18 + Math.random() * 0.18, baseInten: cf.i };
     shafts.add(s);
   });
   scene.add(shafts);
+
+  // ---------- stage spotlight (cassette-jury / santa-beer / flaneur only) ----------
+  // A single warm overhead cone (tapered wide-top/narrow-bottom, like a real
+  // stage fixture) replacing the scattered window shafts for the mood. Tracked
+  // to stay screen-centred (camera-relative, like the creatures) regardless of
+  // the camY dive. Intensity driven each frame from controls.stageLight —
+  // invisible (uInten 0) outside those three sections.
+  const spotMat = shaftBase.clone();
+  spotMat.uniforms.uColor.value = new THREE.Color(0xffd699); // warm, matches the site's key-light hue
+  spotMat.uniforms.uPhase.value = 4.4;
+  spotMat.uniforms.uInten.value = 0;
+  spotMat.uniforms.uStreak.value = 0.35; // cleaner / less turbulent than the water-shaft look
+  const spotGeo = new THREE.PlaneGeometry(7, 10, 1, 1);
+  {
+    // taper the bottom edge inward so the plane reads as a cone (wide at the
+    // "fixture" near the ceiling, narrow where it lands on the stage floor)
+    const pos = spotGeo.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      if (pos.getY(i) < 0) pos.setX(i, pos.getX(i) * 0.28);
+    }
+    pos.needsUpdate = true;
+    spotGeo.computeBoundingSphere();
+  }
+  const spotBeam = new THREE.Mesh(spotGeo, spotMat);
+  // kept entirely below the water surface mesh (y=6.2) — it used to poke
+  // through it, and since the surface is opaque, it was silently occluding
+  // almost the whole beam (only the dim tapered tip near the floor survived)
+  spotBeam.position.set(0, 0.0, -1.0);
+  scene.add(spotBeam);
 
   // blown-out warm window glow, upper-left
   const glowMat = new THREE.ShaderMaterial({
@@ -229,10 +287,10 @@ export function createAquarium(container, opts = {}) {
     depthWrite: false,
     fog: false,
     blending: THREE.AdditiveBlending,
-    uniforms: { uColor: { value: new THREE.Color(0xfff0d2) } },
+    uniforms: { uColor: { value: new THREE.Color(0xfff0d2) }, uInten: { value: 1 } },
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=projectionMatrix*modelViewMatrix*vec4(position,1.0);}`,
-    fragmentShader: /* glsl */ `varying vec2 vUv; uniform vec3 uColor;
-      void main(){ float d=length(vUv-0.5)*2.0; float a=smoothstep(1.0,0.0,d); gl_FragColor=vec4(uColor,a*a*0.55);}`,
+    fragmentShader: /* glsl */ `varying vec2 vUv; uniform vec3 uColor; uniform float uInten;
+      void main(){ float d=length(vUv-0.5)*2.0; float a=smoothstep(1.0,0.0,d); gl_FragColor=vec4(uColor,a*a*0.55*uInten);}`,
   });
   const glow = new THREE.Mesh(new THREE.PlaneGeometry(16, 16), glowMat);
   glow.position.set(-7.5, 3.6, -6.5);
@@ -255,6 +313,7 @@ export function createAquarium(container, opts = {}) {
         uOpacity: { value: 0.95 },
         uFogColor: { value: FOG_COLOR.clone() },
         uFogDensity: { value: FOG_DENSITY },
+        uDim: { value: 1 },
       },
       vertexShader: /* glsl */ `
         varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying float vFog;
@@ -273,7 +332,7 @@ export function createAquarium(container, opts = {}) {
         }`,
       fragmentShader: /* glsl */ `
         precision mediump float;
-        uniform sampler2D uMap; uniform vec3 uFogColor; uniform float uOpacity,uFogDensity;
+        uniform sampler2D uMap; uniform vec3 uFogColor; uniform float uOpacity,uFogDensity,uDim;
         varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying float vFog;
         void main(){
           vec3 N=normalize(vN), V=normalize(vView);
@@ -281,6 +340,7 @@ export function createAquarium(container, opts = {}) {
           float fres = pow(1.0 - clamp(dot(N,V),0.0,1.0), 2.0);  // clear centre, brighter rim
           float lite = 0.55 + 0.5*clamp(dot(N, normalize(vec3(-0.3,1.0,0.4))),0.0,1.0);
           vec3 col = tex*(0.72 + 0.5*lite) + vec3(0.13,0.18,0.20)*fres;
+          col *= uDim;
           float alpha = clamp(uOpacity*(0.36 + 0.85*fres), 0.0, 1.0);
           float f = 1.0 - exp(-uFogDensity*uFogDensity*vFog*vFog);
           col = mix(col, uFogColor, clamp(f,0.0,1.0));
@@ -451,6 +511,8 @@ export function createAquarium(container, opts = {}) {
         uCoat: { value: 0.38 }, // glossy reflective clear-coat strength
         uFogColor: { value: FOG_COLOR.clone() },
         uFogDensity: { value: FOG_DENSITY * 0.55 },
+        uDim: { value: 1 }, // 1 = normal; dimmed toward stageLight sections
+        uSpot: { value: 0 }, // 0..1 — blends the key light overhead (stage spotlight look)
       },
       vertexShader: /* glsl */ `
         #include <common>
@@ -471,7 +533,7 @@ export function createAquarium(container, opts = {}) {
         }`,
       fragmentShader: /* glsl */ `
         precision mediump float;
-        uniform sampler2D uMap; uniform float uHasMap,uOpacity,uFogDensity,uDesat,uBright,uCoat;
+        uniform sampler2D uMap; uniform float uHasMap,uOpacity,uFogDensity,uDesat,uBright,uCoat,uDim,uSpot;
         uniform vec3 uTint,uFogColor;
         varying vec2 vUv; varying vec3 vN; varying vec3 vView; varying float vFog;
         void main(){
@@ -482,8 +544,13 @@ export function createAquarium(container, opts = {}) {
           float luma = dot(base, vec3(0.299,0.587,0.114));
           base = clamp(mix(base, vec3(luma), uDesat) * uBright, 0.0, 1.0);
 
-          vec3 L = normalize(vec3(-0.3,1.0,0.5));
-          float diff = 0.66 + 0.4*clamp(dot(N,L),0.0,1.0);
+          // on a "lit stage" (uSpot>0) the key swings from the window-left
+          // angle to overhead — but keeps a strong forward (+Z) component so
+          // the face (which points roughly +Z, toward camera) stays clearly
+          // lit rather than going flat/silhouetted under a purely top-down key.
+          vec3 L = normalize(mix(vec3(-0.3,1.0,0.5), vec3(0.0,0.85,0.6), uSpot));
+          float ambFloor = mix(0.66, 0.4, uSpot);
+          float diff = ambFloor + mix(0.4, 0.66, uSpot)*clamp(dot(N,L),0.0,1.0);
           float fres = pow(1.0 - clamp(dot(N,V),0.0,1.0), 3.0);
 
           // faux environment reflection for the clear-coat (no env map in scene):
@@ -499,7 +566,8 @@ export function createAquarium(container, opts = {}) {
 
           vec3 col = base*diff;
           col = mix(col, envCol, coat);               // reflective coat layer
-          col += vec3(1.0)*spec*0.7;                  // coat hotspot
+          col += vec3(1.0)*spec*(0.7 + 0.3*uSpot);    // coat hotspot (a touch hotter under the spotlight)
+          col *= uDim;
           float f = 1.0 - exp(-uFogDensity*uFogDensity*vFog*vFog);
           col = mix(col, uFogColor, clamp(f,0.0,1.0));
           gl_FragColor = vec4(col, uOpacity);
@@ -551,18 +619,49 @@ export function createAquarium(container, opts = {}) {
   const _qp = new URLSearchParams(typeof location !== 'undefined' ? location.search : '');
   const _ay = _qp.has('ay') ? parseFloat(_qp.get('ay')) : -Math.PI / 2 + 0.2;
   const _oy = _qp.has('oy') ? parseFloat(_qp.get('oy')) : -Math.PI / 2 - 0.2;
+
+  // _ay/_oy above were tuned so each model's own "front" axis faces the
+  // camera under the resting 'main' framing. Later sections now sink the
+  // camera down (choreography.js camY) while the look-at target stays put,
+  // tilting the view — so a fixed yaw no longer points at the camera
+  // everywhere. Back out each model's
+  // inherent front-axis offset once here (relative to that same 'main'
+  // reference), then recompute the yaw that faces the *live* camera every
+  // frame in updateCreatures — keeps both creatures looking at the camera in
+  // every section, on desktop and mobile alike.
+  function yawToFace(camPos, pos, frontOffset) {
+    return Math.atan2(camPos.x - pos.x, camPos.z - pos.z) + frontOffset;
+  }
+  camera.updateMatrixWorld(true);
+  const _refPos = new THREE.Vector3();
+  screenToWorld(STAGE.main.axolotl.sx, STAGE.main.axolotl.sy, FOCUS_DIST, _refPos);
+  const AXOLOTL_FRONT_OFFSET =
+    _ay - Math.atan2(camera.position.x - _refPos.x, camera.position.z - _refPos.z);
+  screenToWorld(STAGE.main.octopus.sx, STAGE.main.octopus.sy, FOCUS_DIST, _refPos);
+  const OCTOPUS_FRONT_OFFSET =
+    _oy - Math.atan2(camera.position.x - _refPos.x, camera.position.z - _refPos.z);
+
+  // extra yaw the axolotl pans through on top of its face-camera yaw each
+  // time it dances in the flâneur section, so it visibly turns to face the
+  // centred content cloud rather than holding a fixed tilt — and pans back
+  // while it pauses.
+  const AXOLOTL_FACE_CENTER_YAW = 0.4;
+  const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
   const creatureState = {
     axolotl: {
       obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
-      phase: 0.0, yaw: _ay, roll: 0,
+      phase: 0.0, yaw: _ay, roll: 0, frontOffset: AXOLOTL_FRONT_OFFSET,
       mixer: null, idle: null, swim: null, swimBlend: 0,
+      dance: null, danceBlend: 0,
+      facePan: { value: 0, from: 0, target: 0, t: 0, dur: 1.1 },
+      danceCycle: { dancing: true, timer: rand(3.5, 6) },
       hit: { active: false, t: 0, dur: 0.4, dirSign: 1 },
     },
     octopus: {
       obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
-      phase: 2.1, yaw: _oy, roll: 0,
+      phase: 2.1, yaw: _oy, roll: 0, frontOffset: OCTOPUS_FRONT_OFFSET,
       mixer: null, idle: null, swim: null, swimBlend: 0,
     },
   };
@@ -622,8 +721,6 @@ export function createAquarium(container, opts = {}) {
       }
       return;
     }
-
-    const easeInOut = (p) => (p < 0.5 ? 2 * p * p : 1 - Math.pow(-2 * p + 2, 2) / 2);
 
     switch (fx.phase) {
       case 'idle': {
@@ -724,16 +821,54 @@ export function createAquarium(container, opts = {}) {
       screenToWorld(cc.sx, cc.sy, depth, _wp);
       st.prev.copy(st.base);
       st.base.lerp(_wp, k);
+      // face the live camera position every frame (rather than holding the
+      // fixed _ay/_oy yaw) so both creatures keep looking at the camera
+      // through the camY dive/tilt too
+      st.yaw = yawToFace(camera.position, st.base, st.frontOffset);
       // idle ↔ swim crossfade by how fast it's travelling on screen
       const speed = st.prev.distanceTo(st.base) / Math.max(dt, 1e-3);
       const target = speed > 0.5 ? 1 : 0;
       st.swimBlend += (target - st.swimBlend) * Math.min(1, dt * 3.5);
+      // axolotl-only: the flâneur section has a looping dance clip that takes
+      // over from idle/swim while parked there, crossfading both ways so the
+      // handoff never pops. It dances in bursts (a few seconds on, a
+      // couple off) rather than nonstop, panning to face the centred content
+      // as each burst starts and panning back as it pauses.
+      if (id === 'axolotl' && st.dance) {
+        const inSection = controls.activeSection === 'flaneur';
+        if (inSection) {
+          st.danceCycle.timer -= dt;
+          if (st.danceCycle.timer <= 0) {
+            st.danceCycle.dancing = !st.danceCycle.dancing;
+            st.danceCycle.timer = st.danceCycle.dancing ? rand(3.5, 6) : rand(1.8, 3.2);
+          }
+        } else {
+          st.danceCycle.dancing = true; // start dancing again next time it enters the section
+          st.danceCycle.timer = 0;
+        }
+        const dancing = inSection && st.danceCycle.dancing;
+        st.danceBlend += ((dancing ? 1 : 0) - st.danceBlend) * Math.min(1, dt * 2.5);
+
+        // eased pan toward/away from centre — retriggers whenever the target
+        // flips, so it reads as a deliberate turn rather than a static tilt
+        const pan = st.facePan;
+        const panTarget = dancing ? 1 : 0;
+        if (panTarget !== pan.target) {
+          pan.target = panTarget;
+          pan.from = pan.value;
+          pan.t = 0;
+        }
+        pan.t += dt;
+        pan.value = pan.from + (pan.target - pan.from) * easeInOut(Math.min(1, pan.t / pan.dur));
+      }
       // during the cassette-jury attack sequence, stepAttackFX drives the
       // octopus's idle/swim weights directly — don't fight it with the
       // movement-based blend above
       if (st.idle && st.swim && !(id === 'octopus' && attackFX.phase !== 'idle')) {
-        st.swim.setEffectiveWeight(st.swimBlend);
-        st.idle.setEffectiveWeight(1 - st.swimBlend);
+        const dance = id === 'axolotl' ? st.danceBlend : 0;
+        st.swim.setEffectiveWeight(st.swimBlend * (1 - dance));
+        st.idle.setEffectiveWeight((1 - st.swimBlend) * (1 - dance));
+        if (st.dance) st.dance.setEffectiveWeight(dance);
       }
       const bob = Math.sin(t * 1.1 + st.phase) * 0.04;
       // the axolotl has no reaction clip, so a hit is a small procedural
@@ -752,7 +887,8 @@ export function createAquarium(container, opts = {}) {
       st.obj.scale.setScalar(S * sizeComp);
       st.obj.rotation.z = st.roll + hitRoll; // screen-z flip (+ hit wobble)
       const yawNow = id === 'octopus' && attackFX.phase !== 'idle' ? attackFX.currentYaw : st.yaw;
-      if (st.inner) st.inner.rotation.set(0, yawNow + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
+      const centerYaw = id === 'axolotl' ? AXOLOTL_FACE_CENTER_YAW * st.facePan.value : 0;
+      if (st.inner) st.inner.rotation.set(0, yawNow + centerYaw + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
       for (const m of st.mats) m.uniforms.uOpacity.value = cc.opacity;
       st.obj.visible = cc.opacity > 0.01;
       // screen anchor just above the head, for the DOM conversation bubbles
@@ -800,12 +936,19 @@ export function createAquarium(container, opts = {}) {
             const find = (re) => clips.find((c) => re.test(c.name));
             const idleClip = find(/idle/i) || clips[0];
             const swimClip = find(/swim/i) || find(/attack|move|walk/i) || idleClip;
+            const danceClip = find(/dance/i);
             st.idle = st.mixer.clipAction(idleClip);
             st.idle.play();
             if (swimClip !== idleClip) {
               st.swim = st.mixer.clipAction(swimClip);
               st.swim.play();
               st.swim.setEffectiveWeight(0);
+            }
+            if (danceClip && danceClip !== idleClip) {
+              st.dance = st.mixer.clipAction(danceClip);
+              st.dance.setLoop(THREE.LoopRepeat, Infinity);
+              st.dance.play();
+              st.dance.setEffectiveWeight(0);
             }
             st.idle.setEffectiveWeight(1);
           }
@@ -1003,6 +1146,208 @@ export function createAquarium(container, opts = {}) {
   window.addEventListener('mousedown', onMouseDown);
   window.addEventListener('touchstart', onTouchStart, { passive: true });
 
+  // ---------- section prop models (cassette-jury / santa-beer / flaneur) ----------
+  // Each project section shows its own 3D model where the content cloud used
+  // to sit. On arrival the model FALLS in from above the frame — accelerating
+  // like a real object dropped into the tank, trailing a bubble wake, then
+  // splashing and settling with a damped bob. It idles on the focal plane
+  // (always sharp), reacts to hover (pointer cursor, slight grow + tilt
+  // toward the cursor), and clicking it is what opens the section's content
+  // cloud: React registers a callback per section in `propClickHandlers`
+  // (exposed on the returned API). Leaving the section fades the prop out and
+  // re-arms the drop so every re-entry replays it.
+  const propUrls = opts.propUrls ?? {
+    'cassette-jury': '/models/cassette-jury.glb',
+    'santa-beer': '/models/santa-beer.glb',
+    'flaneur': '/models/flaneur.glb',
+  };
+  const PROP_HEIGHT = 3.0; // world height at prop.scale 1 (creatures are 1.75)
+  // Props read darker than the creatures under the dimmed lit-stage look —
+  // several of the models are near-black materials to begin with (cassette
+  // deck, beer bottle) — so they get their own brightness lift on top of the
+  // creatures' dim curve. >1 is fine: uDim is a plain colour multiplier.
+  const PROP_LIGHT_BOOST = 1.45;
+  const PROP_DROP_FROM = 8.5; // drop start, world units above the rest point (well off the top of the frame)
+  const PROP_DROP_DUR = 1.1; // seconds of free fall
+  const propClickHandlers = {}; // section id -> cb(id), registered by Section.jsx
+  const propState = {};
+  for (const id of Object.keys(propUrls)) {
+    propState[id] = {
+      obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
+      pos: new THREE.Vector3(), mixer: null, yaw: 0,
+      fade: 0, dropT: -1, landT: 0, splashed: false, hoverBlend: 0,
+      phase: Math.random() * 6.28,
+    };
+  }
+  (function loadProps() {
+    for (const id of Object.keys(propUrls)) {
+      const st = propState[id];
+      loader.load(
+        propUrls[id],
+        (gltf) => {
+          if (disposed) return;
+          const prep = prepCreature(gltf); // same candy material / centring / group nesting as the creatures
+          st.obj = prep.object;
+          st.inner = prep.inner;
+          st.mats = prep.mats;
+          st.norm = 1 / (prep.height || 1);
+          st.size.copy(prep.size);
+          if (prep.animations.length) {
+            st.mixer = new THREE.AnimationMixer(prep.animRoot);
+            st.mixer.clipAction(prep.animations[0]).play();
+          }
+          st.obj.visible = false;
+          scene.add(st.obj);
+        },
+        undefined,
+        (err) => console.error('prop load failed', id, err),
+      );
+    }
+  })();
+
+  // hover needs to know the pointer has actually moved (it starts parked at
+  // NDC 0,0 = screen centre, right where the props sit) and whether it's over
+  // DOM UI (the open content cloud) rather than the tank.
+  let hasPointer = false;
+  let pointerOnUI = false;
+  let propCursorOn = false;
+  const onPropPointerTrack = (e) => {
+    hasPointer = true;
+    pointerOnUI = !!(e.target && e.target.closest && e.target.closest('.content-cloud'));
+  };
+  window.addEventListener('mousemove', onPropPointerTrack);
+
+  // click/tap → raycast the active section's prop and fire its React callback.
+  // Clicks landing on the open content cloud are ignored so interacting with
+  // the cloud never "clicks through" to the model behind the frosted glass.
+  function handlePropTap(x, y, domTarget) {
+    if (domTarget && domTarget.closest && domTarget.closest('.content-cloud')) return;
+    const id = controls.activeSection;
+    const st = propState[id];
+    if (!st || !st.obj || controls.diveActive || st.dropT < PROP_DROP_DUR || st.fade < 0.5) return;
+    pointerWorld(x, y); // updates the shared `pointer` NDC
+    ray.setFromCamera(pointer, camera);
+    if (ray.intersectObject(st.obj, true).length) {
+      const cb = propClickHandlers[id];
+      if (cb) cb(id);
+    }
+  }
+  const onPropMouseDown = (e) => handlePropTap(e.clientX, e.clientY, e.target);
+  const onPropTouchStart = (e) => {
+    const t0 = e.touches[0];
+    if (t0) handlePropTap(t0.clientX, t0.clientY, e.target);
+  };
+  window.addEventListener('mousedown', onPropMouseDown);
+  window.addEventListener('touchstart', onPropTouchStart, { passive: true });
+
+  const _pwp = new THREE.Vector3();
+  function updateProps(t, dt) {
+    // the prop only lives while its section is settled — held off during the
+    // cinematic dive (same reason as the chat bubbles: activeSection flips at
+    // the scroll crossing, well before the camera actually arrives)
+    const anchor = controls.propAnchor;
+    const targetId =
+      !controls.diveActive && anchor && propState[controls.activeSection]
+        ? controls.activeSection
+        : null;
+    let anyHover = false;
+    for (const id of Object.keys(propState)) {
+      const st = propState[id];
+      if (!st.obj) continue;
+      if (id !== targetId) {
+        // Not (or no longer) this section's turn. If it was still mid-fall —
+        // e.g. the drop armed during the dive-debounce window before
+        // diveActive flipped true — vanish outright instead of ghost-fading
+        // at the rest point; a settled prop fades out where it is, holding
+        // its last WORLD position (not re-anchored to the diving camera, so
+        // it reads as left behind in the water).
+        if (st.dropT >= 0 && st.dropT < PROP_DROP_DUR) st.fade = 0;
+        st.dropT = -1;
+        st.hoverBlend = 0;
+        st.fade += (0 - st.fade) * Math.min(1, dt * 7);
+        if (st.fade < 0.02) st.fade = 0;
+        for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
+        st.obj.visible = st.fade > 0.001;
+        continue;
+      }
+      if (st.dropT < 0) {
+        st.dropT = 0; // (re)arm: every section entry replays the drop
+        st.landT = 0;
+        st.splashed = false;
+        st.hoverBlend = 0;
+      }
+      st.dropT += dt;
+      st.fade += (1 - st.fade) * Math.min(1, dt * 10);
+      if (st.mixer) st.mixer.update(dt);
+
+      // seat it on the focal plane like the creatures: push it back by half
+      // its yawed bounding box projected onto the view axis so the FRONT face
+      // sits exactly on the plane (= always sharp under the tight DOF band).
+      // Uses last frame's yaw (like updateCreatures) — it changes slowly.
+      const S = st.norm * PROP_HEIGHT * (anchor.scale ?? 1);
+      const cy = Math.cos(st.yaw),
+        sny = Math.sin(st.yaw);
+      const hx = 0.5 * st.size.x * S,
+        hy = 0.5 * st.size.y * S,
+        hz = 0.5 * st.size.z * S;
+      const halfDepth =
+        hx * Math.abs(cy * _cfwd.x - sny * _cfwd.z) +
+        hy * Math.abs(_cfwd.y) +
+        hz * Math.abs(sny * _cfwd.x + cy * _cfwd.z);
+      const depth = controls.focusDist + halfDepth;
+      const sizeComp = depth / controls.focusDist;
+      screenToWorld(anchor.sx, anchor.sy, depth, _pwp);
+
+      // drop-in: accelerating fall (p²) → splash burst → damped settle bob
+      let yOff = 0;
+      const falling = st.dropT < PROP_DROP_DUR;
+      if (falling) {
+        const p = st.dropT / PROP_DROP_DUR;
+        yOff = PROP_DROP_FROM * (1 - p * p);
+        // bubble wake trailing the fall
+        if (Math.random() < 0.75) {
+          emitBubble(_pwp.x, _pwp.y + yOff + rand(0.1, 0.6), _pwp.z, false);
+          emitBubble(_pwp.x, _pwp.y + yOff + rand(0.4, 1.2), _pwp.z, false);
+        }
+      } else {
+        if (!st.splashed) {
+          st.splashed = true;
+          for (let n = 0; n < 16; n++) emitBubble(_pwp.x, _pwp.y, _pwp.z, true);
+          for (let n = 0; n < 10; n++) emitBubble(_pwp.x, _pwp.y, _pwp.z, false);
+        }
+        st.landT += dt;
+        // plunges a touch past the rest point on impact, then springs back
+        yOff = Math.sin(st.landT * 7.0) * -0.22 * Math.exp(-st.landT * 3.2);
+      }
+
+      // hover: pointer cursor + slight grow + tilt toward the cursor
+      let hovered = false;
+      if (!falling && hasPointer && !pointerOnUI) {
+        ray.setFromCamera(pointer, camera);
+        hovered = ray.intersectObject(st.obj, true).length > 0;
+      }
+      anyHover = anyHover || hovered;
+      st.hoverBlend += ((hovered ? 1 : 0) - st.hoverBlend) * Math.min(1, dt * 8);
+
+      st.pos.set(_pwp.x, _pwp.y + yOff + Math.sin(t * 1.1 + st.phase) * 0.05, _pwp.z);
+      st.obj.position.copy(st.pos);
+      st.obj.scale.setScalar(S * sizeComp * (1 + 0.08 * st.hoverBlend));
+      // face the camera (plus the per-section yaw trim), sway gently, and
+      // lean toward the cursor while hovered
+      st.yaw = yawToFace(camera.position, st.pos, anchor.yaw ?? 0);
+      _proj.copy(st.pos).project(camera);
+      const tiltY = (pointer.x - _proj.x) * 0.35 * st.hoverBlend;
+      const tiltX = -(pointer.y - _proj.y) * 0.25 * st.hoverBlend;
+      st.inner.rotation.set(tiltX, st.yaw + Math.sin(t * 0.5 + st.phase) * 0.1 + tiltY, 0);
+      for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
+      st.obj.visible = true;
+    }
+    if (anyHover !== propCursorOn) {
+      propCursorOn = anyHover;
+      document.body.style.cursor = anyHover ? 'pointer' : '';
+    }
+  }
+
   const SWIRL = 2.4;
   function updateBubbles(dt, t) {
     const sz = bGeo.attributes.aSize.array;
@@ -1151,6 +1496,8 @@ export function createAquarium(container, opts = {}) {
 
   // ---------- animate ----------
   const clock = new THREE.Clock();
+  const _envColor = new THREE.Color();
+  const _spotAnchor = new THREE.Vector3();
   let mx = 0,
     my = 0;
   let raf = 0;
@@ -1166,9 +1513,100 @@ export function createAquarium(container, opts = {}) {
     const intro = controls.introY; // 1 = parked high above; 0 = settled
     camera.position.x = CAM_BASE.x + (Math.sin(t * 0.12) * 0.5 + mx * 1.1) * (1 - intro);
     camera.position.y =
-      CAM_BASE.y + (Math.sin(t * 0.16) * 0.3 + my * 0.7) * (1 - intro) + intro * 18.0;
+      CAM_BASE.y + controls.camY + (Math.sin(t * 0.16) * 0.3 + my * 0.7) * (1 - intro) + intro * 18.0;
     camera.position.z = controls.cameraZ + intro * 3.0;
-    camera.lookAt(CAM_TARGET.x, CAM_TARGET.y, CAM_TARGET.z);
+    // The look-at target partially follows the camera down (CAM_TARGET_FOLLOW)
+    // rather than staying fully fixed — sinking below it still tilts the view
+    // up as a section gets deeper, but a target that never moved let the tilt
+    // angle grow unbounded on the deepest dives, which pushed the creatures'
+    // faces out of the DOF focal plane (their bounding-box "front" offset is
+    // computed from the camera's forward vector, and a steep tilt inflates it).
+    // Following most of the way keeps the tilt modest at any depth.
+    _lookTarget.set(CAM_TARGET.x, CAM_TARGET.y + controls.camY * CAM_TARGET_FOLLOW, CAM_TARGET.z);
+    camera.lookAt(_lookTarget);
+
+    // ---------- environment tint + "lit stage" mood ----------
+    // (cassette-jury / santa-beer / flaneur dim the tank and add an overhead
+    // spotlight; see controls.envR/G/B + controls.stageLight in choreography.js)
+    _envColor.setRGB(controls.envR, controls.envG, controls.envB);
+    scene.background.copy(_envColor);
+    scene.fog.color.copy(_envColor);
+    // Three separate dim curves, not one: the static environment (floor/back
+    // wall/water) drops hard toward near-black so the tank reads as a dark
+    // stage; the hero creatures barely dim at all — they're the ones
+    // standing "in the spotlight" and should stay clearly visible/bright,
+    // with the contrast against the dark surroundings doing the work instead;
+    // the background fish get a milder dim than the environment — cut as hard
+    // as the floor/walls, they read as murky near-black silhouettes instead of
+    // a soft blurred school.
+    const envDim = 1 - controls.stageLight * 0.78; // 1 → ~0.22 at full stage light
+    const creatureDim = 1 - controls.stageLight * 0.08; // 1 → ~0.92 — stays bright
+    const fishDim = 1 - controls.stageLight * 0.45; // 1 → ~0.55 — muted, not blacked out
+    floorMat.uniforms.uFogColor.value.copy(_envColor);
+    floorMat.uniforms.uDim.value = envDim;
+    backMat.uniforms.uFogColor.value.copy(_envColor);
+    backMat.uniforms.uDim.value = envDim;
+    surfaceMat.uniforms.uFogColor.value.copy(_envColor);
+    surfaceMat.uniforms.uDim.value = envDim;
+    // hidden outright (not faded) through the whole dive sequence, including
+    // mid-transition — with the camera tilting steeply upward at depth, this
+    // plane (the tank's top boundary, seen from below) swings into the middle
+    // of the frame instead of staying near the top edge, reading as a stray
+    // "second surface" underwater rather than the ceiling it's meant to be.
+    // Keyed off activeSection (flips the instant scroll crosses the section
+    // boundary) rather than stageLight (which only ramps in over the dive),
+    // so it's gone from the moment the dive starts, not partway through.
+    const inStageLightSection = STAGE_LIGHT_SECTIONS.has(controls.activeSection);
+    surface.visible = !inStageLightSection;
+    // same problem, same fix, for the tank floor: once the camera sinks below
+    // it and tilts up, this flat opaque plane swings up into frame and cuts
+    // off the creatures' legs/tentacles instead of staying below them
+    floor.visible = !inStageLightSection;
+    // fade the background school down too (not just dim its colour) — a busy
+    // school of fish reads as clutter against a clean single-spotlight stage
+    // look, so it recedes almost out of sight rather than just going darker
+    const fishOpacityMul = 1 - controls.stageLight * 0.7;
+    for (const g of fishGroups) {
+      g.mesh.material.uniforms.uFogColor.value.copy(_envColor);
+      g.mesh.material.uniforms.uDim.value = fishDim;
+      g.mesh.material.uniforms.uOpacity.value = 0.95 * fishOpacityMul;
+    }
+    for (const id of ['axolotl', 'octopus']) {
+      for (const m of creatureState[id].mats) {
+        m.uniforms.uFogColor.value.copy(_envColor);
+        m.uniforms.uDim.value = creatureDim;
+        m.uniforms.uSpot.value = controls.stageLight;
+      }
+    }
+    // section props share the creatures' "in the spotlight" dim curve — they
+    // stand centre-stage in the same lit-stage sections — plus their own
+    // brightness lift (their materials are much darker than the candy pets)
+    for (const id of Object.keys(propState)) {
+      for (const m of propState[id].mats) {
+        m.uniforms.uFogColor.value.copy(_envColor);
+        m.uniforms.uDim.value = creatureDim * PROP_LIGHT_BOOST;
+        m.uniforms.uSpot.value = controls.stageLight;
+      }
+    }
+    hemi.intensity = BASE_LIGHT_INTENSITY.hemi * envDim;
+    key.intensity = BASE_LIGHT_INTENSITY.key * envDim;
+    fill.intensity = BASE_LIGHT_INTENSITY.fill * envDim;
+    ambient.intensity = BASE_LIGHT_INTENSITY.ambient * envDim;
+    // single warm overhead cone stays screen-centred (camera-relative, like
+    // the creatures) through the camY dive; the window shafts + glow it
+    // replaces fade down at the same time so only the one clean beam reads,
+    // instead of the whole scattered multi-shaft wash
+    camera.updateMatrixWorld(true);
+    // kept close to the focal plane (vs. the window shafts, which sit well
+    // behind it) so DOF doesn't blur it into a shapeless glow — it should
+    // read as a distinct cone, not a soft haze
+    screenToWorld(0.5, 0.42, controls.focusDist * 1.08, _spotAnchor);
+    spotBeam.position.x = _spotAnchor.x;
+    spotBeam.position.z = _spotAnchor.z;
+    spotMat.uniforms.uTime.value = t;
+    spotMat.uniforms.uInten.value = controls.stageLight * 1.9;
+    const otherShaftMul = 1 - controls.stageLight * 0.92;
+    glowMat.uniforms.uInten.value = otherShaftMul;
 
     floorMat.uniforms.uTime.value = t;
     backMat.uniforms.uTime.value = t * 0.8;
@@ -1176,12 +1614,14 @@ export function createAquarium(container, opts = {}) {
     surfaceMat.uniforms.uCam.value.copy(camera.position);
     shafts.children.forEach((s, i) => {
       s.material.uniforms.uTime.value = t;
+      s.material.uniforms.uInten.value = s.userData.baseInten * otherShaftMul;
       s.position.x = s.userData.baseX + Math.sin(t * s.userData.sp + i) * 0.45;
     });
     dofMat.uniforms.uFocus.value = controls.focusDist;
 
     updateFish(t);
     updateCreatures(t, dt);
+    updateProps(t, dt);
     updateBubbles(dt, t);
 
     // food flecks drift slowly down with lateral wobble
@@ -1224,6 +1664,10 @@ export function createAquarium(container, opts = {}) {
     window.removeEventListener('touchmove', onTouchMove);
     window.removeEventListener('mousedown', onMouseDown);
     window.removeEventListener('touchstart', onTouchStart);
+    window.removeEventListener('mousemove', onPropPointerTrack);
+    window.removeEventListener('mousedown', onPropMouseDown);
+    window.removeEventListener('touchstart', onPropTouchStart);
+    if (propCursorOn) document.body.style.cursor = '';
     const disposeTree = (root) =>
       root.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
@@ -1251,7 +1695,8 @@ export function createAquarium(container, opts = {}) {
    *   anchors: object,    // live screen-px anchor above each creature's head (for DOM bubbles)
    *   whenReady: (cb: () => void) => void, // fires once fish + both creatures have loaded
    *   burstFromBottom: (total?: number, duration?: number) => void, // entry bubble wave
+   *   propClickHandlers: object, // section id -> cb(id); Section.jsx registers these to open its cloud on prop click
    * }}
    */
-  return { dispose, renderer, controls, anchors, whenReady, burstFromBottom };
+  return { dispose, renderer, controls, anchors, whenReady, burstFromBottom, propClickHandlers };
 }
