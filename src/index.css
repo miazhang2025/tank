@@ -126,6 +126,7 @@ canvas {
   z-index: 8;
   font-family: var(--wordmark);
   font-weight: normal; /* the Glasset demo ships a single weight, like Quedami */
+  font-synthesis: none; /* never let the browser fake a heavier cut — see .loader-word */
   /* a display face reads noticeably smaller than the mono it replaces at the
      same px, so the lockup is stepped up to hold its old visual weight */
   font-size: clamp(18px, 2.1vw, 26px);
@@ -660,9 +661,16 @@ canvas {
   user-select: none;
 }
 .loader-word {
-  font-family: var(--display);
-  font-weight: normal; /* Quedami ships a single weight */
-  font-size: clamp(56px, 13vw, 150px);
+  font-family: var(--wordmark); /* same brand face as the top-left lockup */
+  font-weight: normal;
+  /* Glasset is a single-weight face, which is exactly when a browser will
+     SYNTHESISE a bold (smearing the glyph to fake the missing weight) if
+     anything asks for one. Refusing synthesis is the only real guarantee the
+     lockup is never bolded — `font-weight: normal` alone doesn't stop it. */
+  font-synthesis: none;
+  /* Glasset sets ~1.7x wider than Quedami at the same px, so CRECHE overran
+     the viewport on narrow phones at the old 56px floor */
+  font-size: clamp(34px, 11vw, 150px);
   letter-spacing: 0.05em;
   line-height: 0.9;
 }
