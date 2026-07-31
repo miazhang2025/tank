@@ -476,6 +476,39 @@ canvas {
   }
 }
 
+/* ---------- mobile: drop the backdrop passes ----------
+   Every `backdrop-filter` makes the compositor snapshot everything painted
+   behind the element and run a filter over it — and what's behind all of these
+   is the live WebGL tank, so the snapshot is invalidated and redone every
+   single frame. On desktop that's affordable; on a phone already running the
+   3D scene, a chat column of frosted bubbles plus a full-height SVG refraction
+   pane is what actually tips the GPU into a context loss (the "crash").
+
+   Keyed on `hover: none` as well as the width breakpoint so tablets — wide
+   enough to miss 768px, nowhere near desktop GPU budget — are covered too. */
+@media (hover: none), (max-width: 768px) {
+  :root {
+    /* the desktop value is blur(0px) saturate(100%) brightness(0.95) — no blur
+       and no saturation change, so the only thing lost here is a 5% darken of
+       whatever sits behind an already-frosted panel */
+    --glass-blur: none;
+  }
+  /* the #glassWarp refraction overlays: an SVG displacement-map filter, by far
+     the most expensive effect on the page. Their parents keep their own
+     background + rim, so removing the layer softens the glass, not the shape. */
+  .content-cloud::after,
+  .cloud-button-shape::after,
+  .sidebar-refract {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+  /* belt-and-braces: ContentCloud already skips the preview without a hover
+     pointer, so this element shouldn't exist here at all */
+  .cloud-preview {
+    display: none;
+  }
+}
+
 .ui {
   position: fixed;
   left: 18px;

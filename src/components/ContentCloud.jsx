@@ -8,6 +8,15 @@ const REDUCE =
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
+// A touch device has no hover, so the cursor-trailing preview below is dead
+// weight there — but it wasn't inert: touch browsers synthesise mouseenter on
+// tap, so tapping a project cloud on a phone fetched and decoded its GIF anyway.
+// These clips are enormous (santa-beer is 82 MB, ~1.5 GB of decoded frames held
+// resident by the animation), which is a guaranteed tab kill on mobile Safari.
+// Gate the whole feature on an actual hover-capable pointer.
+const CAN_HOVER =
+  typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+
 // project preview GIFs — hovering the cloud on these sections trails a
 // cursor-following clip, GSAP's own quickTo() cursor-follow pattern.
 const PREVIEWS = {
@@ -31,7 +40,7 @@ export default function ContentCloud({ content, active, id, interactive = true }
   const shapeRef = useRef(null);
   const splitsRef = useRef([]); // active SplitText instances, reverted before every re-split
   const previewRef = useRef(null);
-  const previewSrc = PREVIEWS[id];
+  const previewSrc = CAN_HOVER ? PREVIEWS[id] : null;
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
   // revert any lingering line-splits on unmount so the original text nodes

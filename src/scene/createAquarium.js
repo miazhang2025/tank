@@ -9,6 +9,22 @@ import { SECTIONS } from '../content/sections.js';
 // shaders do their own sRGB <-> linear gamma), keeping the look identical.
 THREE.ColorManagement.enabled = false;
 
+// Phones and tablets get a cheaper pipeline. The desktop settings (2x pixel
+// ratio over three full-screen buffers, a 24-tap depth-of-field, 40 fish + 320
+// flecks + 520 bubbles) routinely pushed mobile GPUs into a context loss, which
+// the visitor experiences as the page "crashing". Everything gated on this flag
+// changes cost, not composition — the framing, choreography and materials are
+// identical, just rendered at fewer samples.
+//
+// Resolved once at module load from `screen` (not `innerWidth`) so rotating the
+// device can't flip it: the flag is baked into shader source and buffer sizes at
+// scene-build time, and rebuilding the whole scene mid-session would be a far
+// worse experience than a slightly conservative pipeline in landscape.
+const LOW_POWER =
+  typeof window !== 'undefined' &&
+  (window.matchMedia('(hover: none) and (pointer: coarse)').matches ||
+    Math.min(window.screen?.width ?? 1e4, window.screen?.height ?? 1e4) <= 820);
+
 /**
  * Build the underwater "tank study" scene inside `container`.
  *
@@ -68,7 +84,10 @@ export function createAquarium(container, opts = {}) {
     alpha: false,
     powerPreference: 'high-performance',
   });
-  const PR = Math.min(window.devicePixelRatio || 1, 2);
+  // The single biggest mobile lever: every pass below (scene, DOF, glass) is
+  // full-screen, so this squares straight into fill rate. 1.5 on a 3x phone
+  // still oversamples the panel and costs ~44% fewer pixels than the 2x cap.
+  const PR = Math.min(window.devicePixelRatio || 1, LOW_POWER ? 1.5 : 2);
   renderer.setPixelRatio(PR);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.NoToneMapping;
@@ -299,7 +318,7 @@ export function createAquarium(container, opts = {}) {
 
   // ---------- fish (loaded GLB models, rendered with the translucent veil) ----------
   const Z = new THREE.Vector3(0, 0, 1);
-  const FISH_N = 40;
+  const FISH_N = LOW_POWER ? 18 : 40;
   const HEAD_FLIP = false; // set true if the models swim tail-first
   const rand = (a, b) => a + Math.random() * (b - a);
 
@@ -350,6 +369,34 @@ export function createAquarium(container, opts = {}) {
     });
   }
 
+  // Every model here gets its GLB material replaced by one of the custom
+  // shaders below, and those sample exactly one texture: baseColor. The normal /
+  // roughness / AO maps the GLBs also ship (several are 2048², i.e. 16 MB each
+  // once decoded) stayed resident for the whole session doing nothing — dead
+  // weight that on iOS counts against the tab's memory budget and helped tip it
+  // into a reload. Drop them the moment the swap is done.
+  //
+  // Collected across the whole model first, then released in one pass: a GLB can
+  // reuse one image across several primitives, so a per-mesh release could free a
+  // bitmap another mesh still needs as its baseColor.
+  function releaseUnusedSourceMaps(sourceMats, keptMaps) {
+    const seen = new Set();
+    for (const mat of sourceMats) {
+      if (!mat || seen.has(mat)) continue;
+      seen.add(mat);
+      for (const key in mat) {
+        const tex = mat[key];
+        if (!tex || !tex.isTexture || keptMaps.has(tex)) continue;
+        // ImageBitmaps hold their pixels outside the JS heap, so waiting for GC
+        // to notice them is exactly the wrong timing on a memory-pressured phone
+        if (tex.image && typeof tex.image.close === 'function') tex.image.close();
+        tex.dispose();
+        mat[key] = null;
+      }
+      mat.dispose();
+    }
+  }
+
   // centre, normalise, and face a loaded model forward (+z); returns shared geo + material
   function prepModel(gltf) {
     let mesh = null;
@@ -366,7 +413,16 @@ export function createAquarium(container, opts = {}) {
     const len = bb.max.x - bb.min.x || 1;
     const s = 1.0 / len;
     geo.scale(s, s, s); // normalise length ~1
-    return { geo, mat: makeFishMat(mesh.material.map) };
+    const map = mesh.material.map;
+    // only the clone above survives — the loaded gltf.scene is dropped whole
+    const sourceMats = [];
+    gltf.scene.traverse((o) => {
+      if (!o.isMesh) return;
+      o.geometry.dispose();
+      sourceMats.push(...(Array.isArray(o.material) ? o.material : [o.material]));
+    });
+    releaseUnusedSourceMaps(sourceMats, new Set(map ? [map] : []));
+    return { geo, mat: makeFishMat(map) };
   }
 
   function fishPos(p, t, out) {
@@ -583,15 +639,20 @@ export function createAquarium(container, opts = {}) {
   function prepCreature(gltf) {
     const root = gltf.scene;
     const mats = [];
+    const sourceMats = [];
+    const keptMaps = new Set();
     root.traverse((o) => {
       if (o.isMesh || o.isSkinnedMesh) {
         o.frustumCulled = false;
         const srcMap = o.material && o.material.map ? o.material.map : null;
         const srcTint = o.material && o.material.color ? o.material.color.getHex() : 0xffffff;
+        if (o.material) sourceMats.push(o.material);
+        if (srcMap) keptMaps.add(srcMap);
         o.material = makeCreatureMat(srcMap, srcMap ? 0xffffff : srcTint);
         mats.push(o.material);
       }
     });
+    releaseUnusedSourceMaps(sourceMats, keptMaps);
     const box = new THREE.Box3().setFromObject(root);
     const size = new THREE.Vector3();
     const center = new THREE.Vector3();
@@ -972,7 +1033,7 @@ export function createAquarium(container, opts = {}) {
   })();
 
   // ---------- floating food flecks (the colourful specks) ----------
-  const FOOD = 320;
+  const FOOD = LOW_POWER ? 140 : 320;
   const foodGeo = new THREE.BufferGeometry();
   const foodPos = new Float32Array(FOOD * 3);
   const foodCol = new Float32Array(FOOD * 3);
@@ -1033,7 +1094,7 @@ export function createAquarium(container, opts = {}) {
   // bubbles: emitted only while the cursor moves (plus the entry burst); they
   // swirl upward and shrink as they rise. Sized with headroom above the entry
   // burst's count so it doesn't recycle (and cut short) still-rising bubbles.
-  const NB = 520;
+  const NB = LOW_POWER ? 260 : 520;
   const bGeo = new THREE.BufferGeometry();
   const bPos = new Float32Array(NB * 3),
     bVel = new Float32Array(NB * 3);
@@ -1114,6 +1175,9 @@ export function createAquarium(container, opts = {}) {
   // edge, spread over `duration` ms — same emitBubble() as the cursor trail,
   // so lifecycle/size/swirl force all match.
   function burstFromBottom(total = 320, duration = 2200) {
+    // the pool is half-size on mobile (NB above); emitting the full desktop
+    // count would wrap bIdx and cut still-rising bubbles short mid-flight
+    if (LOW_POWER) total = Math.min(total, 150);
     const w = window.innerWidth;
     const h = window.innerHeight;
     const start = performance.now();
@@ -1311,7 +1375,13 @@ export function createAquarium(container, opts = {}) {
     hasPointer = true;
     pointerOnUI = !!(e.target && e.target.closest && e.target.closest('.content-cloud'));
   };
-  window.addEventListener('mousemove', onPropPointerTrack);
+  // Touch browsers synthesise a mousemove on tap, which armed `hasPointer` for
+  // the rest of the session — and from then on updateProps ran a full recursive
+  // raycast against the active prop's un-accelerated geometry (flâneur is ~90k
+  // verts) on EVERY frame, to drive a hover state a touch device can't show.
+  // Never arming it on mobile skips that pass entirely; tap-to-open still works,
+  // since handlePropTap raycasts on its own, once per tap.
+  if (!LOW_POWER) window.addEventListener('mousemove', onPropPointerTrack);
 
   // click/tap → raycast the active section's prop and fire its React callback.
   // Clicks landing on the open content cloud are ignored so interacting with
@@ -1530,7 +1600,13 @@ export function createAquarium(container, opts = {}) {
   const quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), null);
   quadScene.add(quad);
 
-  // depth of field (aperture): foreground + background blur
+  // depth of field (aperture): foreground + background blur.
+  // The tap count is the scene's most expensive single number — it's a
+  // dependent texture fetch per sample over every pixel of a full-screen pass.
+  // Mobile takes 10 taps at a smaller max radius: the golden-angle spiral stays
+  // evenly distributed at low counts, and a tighter blur circle over fewer
+  // samples keeps the bokeh smooth rather than dotty.
+  const DOF_SAMPLES = LOW_POWER ? 10 : 24;
   const dofMat = new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: null },
@@ -1540,7 +1616,7 @@ export function createAquarium(container, opts = {}) {
       uFar: { value: FAR },
       uFocus: { value: FOCUS_DIST }, // creatures sit exactly here → sharp
       uRange: { value: 1.9 }, // tight focus band so the background school is always soft
-      uMaxBlur: { value: 16.0 },
+      uMaxBlur: { value: LOW_POWER ? 11.0 : 16.0 },
     },
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
     fragmentShader: /* glsl */ `
@@ -1555,7 +1631,7 @@ export function createAquarium(container, opts = {}) {
         float coc = clamp(abs(d-uFocus)/uRange, 0.0, 1.0);
         coc = pow(coc,1.25)*uMaxBlur;
         if(coc < 0.6){ gl_FragColor=vec4(base,1.0); return; }
-        const int N=24; float ga=2.39996323; vec3 acc=base; float total=1.0;
+        const int N=${DOF_SAMPLES}; float ga=2.39996323; vec3 acc=base; float total=1.0;
         for(int i=0;i<N;i++){
           float fi=float(i); float rr=sqrt((fi+0.5)/float(N)); float a=fi*ga;
           vec2 off=vec2(cos(a),sin(a))*rr*coc/uRes;
@@ -1786,6 +1862,41 @@ export function createAquarium(container, opts = {}) {
   }
   tick();
 
+  // ---------- context loss / background tab ----------
+  // When a mobile GPU's watchdog or the OS memory reaper kills the WebGL
+  // context, the canvas goes black permanently — and the rAF loop kept spinning,
+  // burning CPU issuing draw calls into a dead context (and re-triggering the
+  // very pressure that killed it). Preventing the default event lets the browser
+  // hand the context back, and three.js re-uploads its resources on the next
+  // frame; parking the loop in between is what makes the recovery survivable.
+  const canvas = renderer.domElement;
+  let contextLost = false;
+  const resumeLoop = () => {
+    if (disposed || contextLost || raf || document.hidden) return;
+    clock.getDelta(); // flush the paused interval so dt doesn't jump on resume
+    raf = requestAnimationFrame(tick);
+  };
+  const pauseLoop = () => {
+    cancelAnimationFrame(raf);
+    raf = 0;
+  };
+  const onContextLost = (e) => {
+    e.preventDefault();
+    contextLost = true;
+    pauseLoop();
+  };
+  const onContextRestored = () => {
+    contextLost = false;
+    resumeLoop();
+  };
+  // backgrounding a tab already throttles rAF, but not before the frame in
+  // flight — and on mobile that last full-resolution frame lands exactly when
+  // the OS is reclaiming memory for whatever the visitor switched to
+  const onVisibility = () => (document.hidden ? pauseLoop() : resumeLoop());
+  canvas.addEventListener('webglcontextlost', onContextLost);
+  canvas.addEventListener('webglcontextrestored', onContextRestored);
+  document.addEventListener('visibilitychange', onVisibility);
+
   // ---------- teardown ----------
   function dispose() {
     disposed = true;
@@ -1798,6 +1909,9 @@ export function createAquarium(container, opts = {}) {
     window.removeEventListener('mousemove', onPropPointerTrack);
     window.removeEventListener('mousedown', onPropMouseDown);
     window.removeEventListener('touchstart', onPropTouchStart);
+    canvas.removeEventListener('webglcontextlost', onContextLost);
+    canvas.removeEventListener('webglcontextrestored', onContextRestored);
+    document.removeEventListener('visibilitychange', onVisibility);
     if (propCursorOn) document.body.style.cursor = '';
     const disposeTree = (root) =>
       root.traverse((o) => {
@@ -1813,6 +1927,10 @@ export function createAquarium(container, opts = {}) {
     rtDOF.dispose();
     quad.geometry.dispose();
     renderer.dispose();
+    // hands the GPU allocation back immediately instead of waiting for the
+    // canvas to be collected — matters in React StrictMode, which mounts the
+    // scene twice, and on any phone tight enough to be crashing in the first place
+    renderer.forceContextLoss();
     if (renderer.domElement.parentNode === container) {
       container.removeChild(renderer.domElement);
     }
