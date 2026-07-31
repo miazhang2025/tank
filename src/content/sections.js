@@ -90,15 +90,15 @@ export const SECTIONS = [
 
   {
     id: 'santa-beer',
-    title: 'Santa Beer',
+    title: 'Undersory',
     chat: [{ who: 'axolotl', text: 'I like beer.' },
       { who: 'octopus', text: 'I like santa.' }
     ],
     content: {
       // heading: 'Santa Beer',
       body:
-        "A meta-advertisement for beer, told through the lens of an Ozempic-era cultural satire. A fat Santa decides to slim down after getting stuck in a chimney—one year later, he's a new man. But \"cut\" breaks the illusion: it's a commercial shoot. The thin Santa trudges off set, exhausted, only to find the real Santa waiting in the car with a cold beer. \n\nReal Taste, No Acting Required. ",
-      button: { label: 'Drink Beer', href: 'https://miazhang2025.github.io/santabeer/' },
+        "Understory is about some things are worth the tradeoff. So we made the tradeoff literal. A crooked cottage deep in a dark wood. An old alchemist has spent his life chasing clarity and hasn't found it. A hooded merchant arrives from the trees with a wooden case that opens into a brass balance scale. On one pan, a vial of dark mushroom powder. Then he reaches toward the old man's lips and draws out a thread of golden light — his sense of taste — and sets it on the other pan.\n\n",
+      button: { label: 'Trade Off', href: 'https://www.instagram.com/p/DbcQZxZsRnX/' },
     },
   },
 

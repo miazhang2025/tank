@@ -312,8 +312,8 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     // intro section (index 0) runs its pop-ups noticeably slower than the rest,
     // and irregularly — like a real conversation — instead of a fixed metronome
     const OTHER_GAP = REDUCE ? 0.35 : 0.85;
-    const MAIN_GAP_MIN = REDUCE ? 0.5 : 2.2;
-    const MAIN_GAP_MAX = REDUCE ? 0.8 : 3.6;
+    const MAIN_GAP_MIN = REDUCE ? 0.5 : 1.3;
+    const MAIN_GAP_MAX = REDUCE ? 0.8 : 2.3;
     const nextGap = () =>
       index === 0 ? MAIN_GAP_MIN + Math.random() * (MAIN_GAP_MAX - MAIN_GAP_MIN) : OTHER_GAP;
     let gap = nextGap();
@@ -381,7 +381,10 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
 
   return (
     <div ref={rootRef} className="section-content">
-      {data.title && (
+      {/* prop sections get a 3D in-scene title instead (createAquarium's
+          buildPropTitles) so the model can genuinely occlude the text —
+          rendering the DOM one too would double it up */}
+      {data.title && !isPropSection && (
         <h2 className="section-title" ref={titleRef} style={{ opacity: 0 }}>
           {data.title}
         </h2>

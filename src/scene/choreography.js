@@ -37,12 +37,14 @@
  *     light (plus a soft spotlight beam) instead of the usual window-left
  *     lighting. Eases in with the rest of the push transition.
  *
- *   prop: optional { sx, sy, scale, yaw } — screen anchor for the section's
- *     3D prop model (public/models/<section-id>.glb). Sections with a prop
- *     show the model where the content cloud used to sit; the cloud itself
- *     only opens when the model is clicked (see Section.jsx). `scale`
- *     multiplies the base PROP_HEIGHT in createAquarium.js; `yaw` (radians,
- *     default 0) trims which way the model's "front" faces.
+ *   prop: optional { sx, sy, scale, yaw, boost } — screen anchor for the
+ *     section's 3D prop model (public/models/<section-id>.glb). Sections
+ *     with a prop show the model where the content cloud used to sit; the
+ *     cloud itself only opens when the model is clicked (see Section.jsx).
+ *     `scale` multiplies the base PROP_HEIGHT in createAquarium.js; `yaw`
+ *     (radians, default 0) trims which way the model's "front" faces;
+ *     `boost` overrides the default PROP_LIGHT_BOOST brightness multiplier
+ *     (cassette-jury's near-black deck needs more lift than the others).
  */
 
 export const FOCUS_DIST = 6.0; // shared focal-plane depth (animals + mouse bubbles)
@@ -70,7 +72,7 @@ export const STAGE = {
   // prop anchors sit where each section's content cloud used to: cassette-jury's
   // cloud leaned right-of-centre (both creatures crowd the left), the other two
   // were dead-centre with the creatures flanking symmetrically.
-  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.38, sy: 0.85 }, cameraZ: 9.0, camY: -2.2, envColor: STAGE_ENV, stageLight: 1, prop: { sx: 0.62, sy: 0.44, scale: 1, yaw: -Math.PI / 2 } },
+  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.38, sy: 0.85 }, cameraZ: 9.0, camY: -2.2, envColor: STAGE_ENV, stageLight: 0.65, prop: { sx: 0.62, sy: 0.44, scale: 1, yaw: -Math.PI / 2, boost: 2.1 } },
   'santa-beer':    { axolotl: { sx: 0.16, sy: 0.82 }, octopus: { sx: 0.84, sy: 0.82 }, cameraZ: 9.0, camY: -4.5, envColor: STAGE_ENV, stageLight: 1, prop: { sx: 0.50, sy: 0.44, scale: 1, yaw: -Math.PI / 2 } },
   'flaneur':       { axolotl: { sx: 0.16, sy: 0.80 }, octopus: { sx: 0.84, sy: 0.82 }, cameraZ: 9.0, camY: -6.5, envColor: STAGE_ENV, stageLight: 1, prop: { sx: 0.50, sy: 0.44, scale: 1, yaw: -Math.PI / 2 } },
   'more':          { axolotl: { sx: 0.36, sy: 0.83 }, octopus: { sx: 0.64, sy: 0.83 }, cameraZ: 9.0, camY: 0 },
@@ -87,7 +89,7 @@ export const STAGE = {
 export const STAGE_MOBILE = {
   'main':          { axolotl: { sx: 0.30, sy: 0.78 }, octopus: { sx: 0.66, sy: 0.84 }, cameraZ: 9.4, camY: 0 },
   'about':         { axolotl: { sx: 0.28, sy: 0.80 }, octopus: { sx: 0.69, sy: 0.85 }, cameraZ: 9.0, camY: 0 },
-  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.71, sy: 0.86 }, cameraZ: 9.0, camY: -2.2, envColor: STAGE_ENV, stageLight: 1, prop: { sx: 0.50, sy: 0.40, scale: 0.8, yaw: -Math.PI / 2 } },
+  'cassette-jury': { axolotl: { sx: 0.26, sy: 0.83 }, octopus: { sx: 0.71, sy: 0.86 }, cameraZ: 9.0, camY: -2.2, envColor: STAGE_ENV, stageLight: 0.65, prop: { sx: 0.50, sy: 0.40, scale: 0.8, yaw: -Math.PI / 2, boost: 2.1 } },
   'santa-beer':    { axolotl: { sx: 0.24, sy: 0.80 }, octopus: { sx: 0.72, sy: 0.85 }, cameraZ: 9.0, camY: -4.5, envColor: STAGE_ENV, stageLight: 1, prop: { sx: 0.50, sy: 0.40, scale: 0.8, yaw: -Math.PI / 2 } },
   // extra clearance vs. the other rows: the axolotl's flâneur dance swings its
   // arms outward, so the resting gap needs more room before the animation adds

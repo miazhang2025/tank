@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { NOISE } from './shaders.js';
 import { STAGE, FOCUS_DIST } from './choreography.js';
+import { SECTIONS } from '../content/sections.js';
 
 // The reference scene predates three.js colour management. Disable it so raw
 // THREE.Color uniform values stay the same byte-for-byte as r128 (the custom
@@ -1205,6 +1206,101 @@ export function createAquarium(container, opts = {}) {
     }
   })();
 
+  // ---------- 3D section titles (BEHIND the prop models) ----------
+  // The movie-style section name must be occluded by the 3D model, and DOM
+  // can never paint under WebGL content — so the title lives in the scene
+  // itself: the text is rasterised to a canvas texture on a camera-facing
+  // plane placed just behind the model's back face. Sitting a little past
+  // the focal plane, the DOF pass softens it slightly, which reads as depth.
+  // Section.jsx skips its DOM <h2> for these sections.
+  // Brand red pre-darkened to compensate for the post pipeline: colour
+  // management is disabled scene-wide and the custom composite shaders do
+  // their own gamma, which washes a raw sRGB canvas texel out pale — this
+  // value round-trips to roughly --c-red (#d94e3b) on screen.
+  const TITLE_COLOR = '#b2200f';
+  const TITLE_FONT_PX = 240; // raster resolution, not on-screen size
+  const TITLE_SCREEN_H = 0.19; // on-screen glyph height as a fraction of viewport height
+  const TITLE_SY_LIFT = 0.17; // raised above the model's anchor so the name peeks over it
+  const titleState = {}; // id -> { mesh, aspect, hFactor }
+  function buildPropTitles() {
+    for (const id of Object.keys(propUrls)) {
+      if (titleState[id]) continue;
+      const section = SECTIONS.find((s) => s.id === id);
+      if (!section || !section.title) continue;
+      const text = section.title;
+      const font = `${TITLE_FONT_PX}px Quedami, "Helvetica Neue", Arial, sans-serif`;
+      const cv = document.createElement('canvas');
+      let ctx = cv.getContext('2d');
+      ctx.font = font;
+      const pad = TITLE_FONT_PX * 0.2; // accents/descenders overhang the em box
+      cv.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
+      cv.height = Math.ceil(TITLE_FONT_PX * 1.5);
+      ctx = cv.getContext('2d'); // resizing reset the context state
+      ctx.font = font;
+      ctx.fillStyle = TITLE_COLOR;
+      ctx.textBaseline = 'middle';
+      ctx.fillText(text, pad, cv.height * 0.55);
+      const tex = new THREE.CanvasTexture(cv);
+      tex.anisotropy = 4;
+      // Lives in fxScene (composited AFTER the depth-of-field pass, like the
+      // mouse bubbles) so the text stays CRISP — in the main scene the DOF
+      // smeared it illegible. fxScene has no depth buffer from the scene, so
+      // occlusion is done by hand: sample the scene pass's depth texture and
+      // discard wherever something (the prop model) sits nearer than the
+      // title plane.
+      const mesh = new THREE.Mesh(
+        new THREE.PlaneGeometry(1, 1),
+        new THREE.ShaderMaterial({
+          transparent: true,
+          depthWrite: false,
+          depthTest: false,
+          uniforms: {
+            uMap: { value: tex },
+            uOpacity: { value: 0 },
+            tDepth: { value: null }, // rebound every frame — resize recreates the target
+            uRes: { value: new THREE.Vector2(1, 1) },
+            uNear: { value: NEAR },
+            uFar: { value: FAR },
+          },
+          vertexShader: /* glsl */ `
+            varying vec2 vUv; varying float vViewZ;
+            void main(){
+              vUv = uv;
+              vec4 mv = modelViewMatrix * vec4(position, 1.0);
+              vViewZ = mv.z;
+              gl_Position = projectionMatrix * mv;
+            }`,
+          fragmentShader: /* glsl */ `
+            #include <packing>
+            uniform sampler2D uMap; uniform sampler2D tDepth;
+            uniform vec2 uRes; uniform float uNear; uniform float uFar; uniform float uOpacity;
+            varying vec2 vUv; varying float vViewZ;
+            void main(){
+              vec4 c = texture2D(uMap, vUv);
+              float a = c.a * uOpacity;
+              if (a < 0.01) discard;
+              float sceneZ = perspectiveDepthToViewZ(texture2D(tDepth, gl_FragCoord.xy / uRes).x, uNear, uFar);
+              // view-space z is negative ahead of the camera: greater = nearer.
+              if (sceneZ > vViewZ + 0.05) discard; // the scene (the model) is in front
+              gl_FragColor = vec4(c.rgb, a);
+            }`,
+        }),
+      );
+      mesh.visible = false;
+      fxScene.add(mesh);
+      titleState[id] = { mesh, aspect: cv.width / cv.height, hFactor: cv.height / TITLE_FONT_PX };
+    }
+  }
+  // wait for the display font — rasterising before it lands would bake the
+  // fallback face into the texture for the whole session
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      if (!disposed) buildPropTitles();
+    });
+  } else {
+    buildPropTitles();
+  }
+
   // hover needs to know the pointer has actually moved (it starts parked at
   // NDC 0,0 = screen centre, right where the props sit) and whether it's over
   // DOM UI (the open content cloud) rather than the tank.
@@ -1241,6 +1337,8 @@ export function createAquarium(container, opts = {}) {
   window.addEventListener('touchstart', onPropTouchStart, { passive: true });
 
   const _pwp = new THREE.Vector3();
+  const _twp = new THREE.Vector3();
+  const _res2 = new THREE.Vector2();
   function updateProps(t, dt) {
     // the prop only lives while its section is settled — held off during the
     // cinematic dive (same reason as the chat bubbles: activeSection flips at
@@ -1268,6 +1366,12 @@ export function createAquarium(container, opts = {}) {
         if (st.fade < 0.02) st.fade = 0;
         for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
         st.obj.visible = st.fade > 0.001;
+        const tsOut = titleState[id];
+        if (tsOut) {
+          // fades out in place alongside the prop (same "left behind" rule)
+          tsOut.mesh.material.uniforms.uOpacity.value = st.fade;
+          tsOut.mesh.visible = st.fade > 0.001;
+        }
         continue;
       }
       if (st.dropT < 0) {
@@ -1341,6 +1445,30 @@ export function createAquarium(container, opts = {}) {
       st.inner.rotation.set(tiltX, st.yaw + Math.sin(t * 0.5 + st.phase) * 0.1 + tiltY, 0);
       for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
       st.obj.visible = true;
+
+      // The cinematic title: camera-facing plane, lifted above the model's
+      // anchor so the name peeks out over it. It only needs to sit a bit
+      // past the model's FRONT surface — the shader's manual depth test
+      // hides it wherever the model (always nearer) covers it.
+      const ts = titleState[id];
+      if (ts) {
+        const depthT = controls.focusDist + halfDepth + 0.4;
+        screenToWorld(anchor.sx, anchor.sy - TITLE_SY_LIFT, depthT, _twp);
+        ts.mesh.position.copy(_twp);
+        ts.mesh.quaternion.copy(camera.quaternion);
+        // constant on-screen GLYPH height (so all three titles match), then
+        // clamped to the viewport width for the long names on phones
+        const worldScreenH = 2 * depthT * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+        let h = worldScreenH * TITLE_SCREEN_H * ts.hFactor;
+        const maxW = worldScreenH * camera.aspect * 0.94;
+        if (h * ts.aspect > maxW) h = maxW / ts.aspect;
+        ts.mesh.scale.set(h * ts.aspect, h, 1);
+        const u = ts.mesh.material.uniforms;
+        u.uOpacity.value = st.fade;
+        u.tDepth.value = rtScene.depthTexture; // rebound each frame: setSizes() recreates the target
+        u.uRes.value.copy(renderer.getDrawingBufferSize(_res2));
+        ts.mesh.visible = st.fade > 0.001;
+      }
     }
     if (anyHover !== propCursorOn) {
       propCursorOn = anyHover;
@@ -1580,11 +1708,14 @@ export function createAquarium(container, opts = {}) {
     }
     // section props share the creatures' "in the spotlight" dim curve — they
     // stand centre-stage in the same lit-stage sections — plus their own
-    // brightness lift (their materials are much darker than the candy pets)
+    // brightness lift (their materials are much darker than the candy pets).
+    // Per-section override via prop.boost in choreography.js (not
+    // breakpoint-dependent, so reading the desktop STAGE table is fine).
     for (const id of Object.keys(propState)) {
+      const boost = STAGE[id]?.prop?.boost ?? PROP_LIGHT_BOOST;
       for (const m of propState[id].mats) {
         m.uniforms.uFogColor.value.copy(_envColor);
-        m.uniforms.uDim.value = creatureDim * PROP_LIGHT_BOOST;
+        m.uniforms.uDim.value = creatureDim * boost;
         m.uniforms.uSpot.value = controls.stageLight;
       }
     }

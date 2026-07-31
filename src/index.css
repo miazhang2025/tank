@@ -32,12 +32,12 @@
   /* ---- frosted glass: the EXACT sidebar material (same gradient + blur), reused
      as-is by every bubble / content-cloud / CTA so the whole site shares one glass. */
   --glass-bg: radial-gradient(
-      rgba(174, 233, 250, 0.0) 0%,
+      rgba(174, 233, 250, 0.011) 0%,
       rgba(185, 228, 236, 0.116) 70%,
       rgba(218, 242, 247, 0.199) 90%,
       rgba(218, 242, 247, 0.199) 100%
   );
-  --glass-blur: blur(50px) saturate(112%) brightness(0.9);
+  --glass-blur: blur(0px) saturate(100%) brightness(0.95);
   --glass-rim: rgba(255, 255, 255, 1);
   /* light halo so the solid dark text stays legible on the transparent glass */
 
@@ -125,6 +125,9 @@ canvas {
   color: var(--c-red);
   text-shadow: 0 2px 24px rgba(8, 30, 36, 0.28);
 }
+/* The three project sections have no DOM title: their cinematic centred name
+   is rendered INSIDE the 3D scene (createAquarium's buildPropTitles) so the
+   prop model can genuinely occlude it — DOM can never paint under WebGL. */
 
 /* ---------- conversation bubbles (chat above each creature) ---------- */
 /* A "stack" is one speaker's column, anchored above its creature's head; JS
@@ -194,6 +197,24 @@ canvas {
   border-image-outset: 0;
   border-image-repeat: stretch;
   /* box-shadow: var(--glass-depth), 0 5px 15px rgba(8, 30, 36, 0.18); */
+}
+.cbubble::after {
+  /* frosted pane clipped to the bubble blob (same conversation-mask.svg +
+     9-slice numbers as the CTA button). The bubble ARTWORK's fill is only
+     ~20% opaque — fine over open water, but the project sections now park a
+     big dark 3D model and the red in-scene title right behind the chat, and
+     they showed straight through the art, reading as a broken bubble. This
+     layer blurs + lightens whatever is behind first; the art paints over it
+     unchanged (-1 beats -2). */
+  content: "";
+  position: absolute;
+  inset: -7px -22px; /* match the artwork layer exactly */
+  z-index: -2;
+  -webkit-mask-box-image: url("/UI/conversation-mask.svg") 12 95 fill stretch;
+  mask-border: url("/UI/conversation-mask.svg") 12 95 fill / auto / 0 stretch;
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+  background: rgba(235, 246, 248, 0.32);
 }
 /* speaker identity = which pre-made bubble art this speaker uses */
 .cbubble.axolotl {
