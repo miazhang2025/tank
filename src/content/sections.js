@@ -55,7 +55,7 @@ export const SECTIONS = [
 
   {
     id: 'about',
-    title: 'About',
+    title: 'TL;DR',
     chat: [
       { who: 'axolotl', text: 'So, what is CRÈCHE?' },
       { who: 'octopus', text: 'A tank. Two of us live in it — the octopus and the axolotl.' },
@@ -90,14 +90,14 @@ export const SECTIONS = [
 
   {
     id: 'santa-beer',
-    title: 'Undersory',
-    chat: [{ who: 'axolotl', text: 'I like beer.' },
-      { who: 'octopus', text: 'I like santa.' }
+    title: 'Understory',
+    chat: [{ who: 'axolotl', text: 'I like mushrooms.' },
+      { who: 'octopus', text: 'No.' }
     ],
     content: {
       // heading: 'Santa Beer',
       body:
-        "Understory is about some things are worth the tradeoff. So we made the tradeoff literal. A crooked cottage deep in a dark wood. An old alchemist has spent his life chasing clarity and hasn't found it. A hooded merchant arrives from the trees with a wooden case that opens into a brass balance scale. On one pan, a vial of dark mushroom powder. Then he reaches toward the old man's lips and draws out a thread of golden light — his sense of taste — and sets it on the other pan.\n\n",
+        "Understory is an AI spec Ad about some things are worth the tradeoff. We made the tradeoff literal. A crooked cottage deep in a dark wood. An old alchemist has spent his life chasing clarity and hasn't found it. A hooded merchant arrives from the trees with a wooden case that opens into a brass balance scale. On one pan, a vial of dark mushroom powder. Then he reaches toward the old man's lips and draws out a thread of golden light — his sense of taste — and sets it on the other pan.\n\n",
       button: { label: 'Trade Off', href: 'https://www.instagram.com/p/DbcQZxZsRnX/' },
     },
   },
@@ -127,13 +127,13 @@ export const SECTIONS = [
 ];
 
 /** Brand wordmark shown top-left on every section. */
-export const WORDMARK = 'CRÈCHE / the tank';
+export const WORDMARK = 'CRECHE';
 
 /** Sidebar menu — label + the section id it scrolls to. */
 export const MENU = [
   { label: 'About', target: 'about' },
   { label: 'Cassette Jury', target: 'cassette-jury' },
-  { label: 'Santa Beer', target: 'santa-beer' },
+  { label: 'Understory', target: 'santa-beer' },
   { label: 'Flâneur', target: 'flaneur' },
   { label: 'More', target: 'more' },
 ];

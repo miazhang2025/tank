@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import gsap from 'gsap';
 import ContentCloud from './ContentCloud.jsx';
 
@@ -25,22 +25,25 @@ const PROP_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
  * creature's head) and pushes the already-shown bubbles UP as the stack grows;
  * reverse-scroll drops them off the bottom again.
  *
+ * Memoised (see the export at the bottom): the props below are all stable or
+ * boolean, so a section that isn't entering or leaving skips re-rendering
+ * entirely when the active index moves.
+ *
  * @param {object}  props.scene
  * @param {number}  props.index
- * @param {number}  props.activeIndex
+ * @param {boolean} props.isActive  this section is the snapped-to one
+ * @param {boolean} props.near      within one section of active (runs the follow/reveal loop)
  * @param {object}  props.data
  * @param {boolean} props.mobile
  * @param {{current:number}} props.progressRef  continuous fractional section index
  * @param {boolean} props.active  scrolling/reveal enabled (true once the intro settles)
  */
-export default function Section({ scene, index, activeIndex, data, mobile, progressRef, active }) {
+function Section({ scene, index, isActive, near, data, mobile, progressRef, active }) {
   const rootRef = useRef(null);
   const axRef = useRef(null);
   const ocRef = useRef(null);
   const titleRef = useRef(null);
   const revealedRef = useRef(0);
-  const isActive = activeIndex === index;
-  const near = Math.abs(activeIndex - index) <= 1;
 
   // section title fades + slides in on arrival, out on departure — same
   // entrance language as the content cloud (fromTo opacity/offset).
@@ -122,10 +125,15 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       ),
     );
 
+    // Plain style writes rather than gsap.set(clearProps) — this runs over
+    // every bubble in the section, on the frame the section becomes near, i.e.
+    // exactly the frame the transition needs. gsap.set has to parse the target
+    // and re-read its computed transform to clear it; assigning '' does the
+    // same job here for a fraction of the cost.
     const collapse = (el) => {
       gsap.killTweensOf(el);
       el.style.display = 'none';
-      gsap.set(el, { clearProps: 'transform' });
+      el.style.transform = '';
       if (!el.classList.contains('spacer')) el.style.opacity = '0';
     };
     colEls.forEach((els) => els.forEach(collapse));
@@ -306,7 +314,6 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
       el.style.opacity = a.visible ? '' : '0';
     };
 
-    let raf = 0;
     let lastStep = 0;
     let wasActive = false;
     // intro section (index 0) runs its pop-ups noticeably slower than the rest,
@@ -364,12 +371,18 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
         }
         revealedRef.current = shown;
       }
-      raf = requestAnimationFrame(loop);
     };
+    // On the shared GSAP ticker rather than its own rAF: Lenis and Stage's
+    // progress follower already run there, so this reads the scroll progress
+    // and creature anchors produced by the same frame instead of trailing them
+    // by one — which is what made the bubbles shimmer against the heads they
+    // are pinned to. It's also one rAF callback for the page instead of one
+    // per near-active section.
+    gsap.ticker.add(loop);
     loop();
 
     return () => {
-      cancelAnimationFrame(raf);
+      gsap.ticker.remove(loop);
       revealedRef.current = 0;
       colEls.forEach((els) => els.forEach(collapse));
     };
@@ -451,3 +464,5 @@ export default function Section({ scene, index, activeIndex, data, mobile, progr
     </div>
   );
 }
+
+export default memo(Section);

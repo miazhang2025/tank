@@ -49,7 +49,7 @@ export default function ContentCloud({ content, active, id, interactive = true }
 
   useEffect(() => {
     const el = ref.current;
-    if (!el) return;
+    if (!el) return undefined;
     gsap.killTweensOf(el);
     if (active) {
       gsap.fromTo(
@@ -62,30 +62,44 @@ export default function ContentCloud({ content, active, id, interactive = true }
       // they slide up out of a clipped box, per the GSAP SplitText "lines"
       // example) and stagger them in with an offset so lines cascade in one
       // after another instead of popping in together.
-      splitsRef.current.forEach((s) => s.revert());
-      splitsRef.current = [];
-      const targets = el.querySelectorAll('.cloud-heading, .cloud-body p');
-      const lines = [];
-      targets.forEach((t) => {
-        const split = SplitText.create(t, { type: 'lines', mask: 'lines' });
-        splitsRef.current.push(split);
-        lines.push(...split.lines);
-      });
-      if (lines.length) {
-        gsap.fromTo(
-          lines,
-          { yPercent: 110, opacity: 0 },
-          {
-            yPercent: 0,
-            opacity: 1,
-            duration: REDUCE ? 0.4 : 0.9,
-            ease: 'power3.out',
-            stagger: REDUCE ? 0.02 : 0.06,
-            delay: REDUCE ? 0.15 : 0.4,
-            overwrite: 'auto',
-          },
-        );
-      }
+      //
+      // Deferred off the arrival frame: re-splitting is a bulk DOM rewrite plus
+      // a forced line-box measure, and firing it the instant the section became
+      // active dropped a frame right at the top of the transition. The lines
+      // don't start moving until SPLIT_DELAY + the tween delay below anyway, so
+      // paying for it a beat later is invisible — the two delays are split so
+      // the lines still cascade at the same moment they always did.
+      const SPLIT_DELAY = REDUCE ? 0.05 : 0.15;
+      const doSplit = () => {
+        splitsRef.current.forEach((s) => s.revert());
+        splitsRef.current = [];
+        const targets = el.querySelectorAll('.cloud-heading, .cloud-body p');
+        const lines = [];
+        targets.forEach((t) => {
+          const split = SplitText.create(t, { type: 'lines', mask: 'lines' });
+          splitsRef.current.push(split);
+          lines.push(...split.lines);
+        });
+        if (lines.length) {
+          gsap.fromTo(
+            lines,
+            { yPercent: 110, opacity: 0 },
+            {
+              yPercent: 0,
+              opacity: 1,
+              duration: REDUCE ? 0.4 : 0.9,
+              ease: 'power3.out',
+              stagger: REDUCE ? 0.02 : 0.06,
+              delay: (REDUCE ? 0.15 : 0.4) - SPLIT_DELAY,
+              overwrite: 'auto',
+            },
+          );
+        }
+      };
+      const splitCall = gsap.delayedCall(SPLIT_DELAY, doSplit);
+      // scrolled straight back out before the split ran — drop it, or it would
+      // re-split (and re-reveal) a cloud that is already fading away
+      return () => splitCall.kill();
     } else {
       gsap.to(el, { opacity: 0, y: 16, duration: 0.35, ease: 'power2.in' });
       // the trailing GIF preview gets no mouseleave when the cloud closes
@@ -94,6 +108,7 @@ export default function ContentCloud({ content, active, id, interactive = true }
         gsap.to(previewRef.current, { opacity: 0, scale: 0.82, duration: 0.25, ease: 'power2.in', overwrite: 'auto' });
       }
     }
+    return undefined;
   }, [active, content]);
 
   // Magnetic CTA: the button eases toward the cursor while hovered and springs

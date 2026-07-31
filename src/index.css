@@ -15,11 +15,22 @@
 
 }
 
+/* brand wordmark face (public/Glasset Demo.ttf) — used only by the top-left
+   lockup. The space in the filename is percent-encoded so the url() parses. */
+@font-face {
+  font-family: "Glasset Demo";
+  src: url("/Glasset%20Demo.ttf") format("truetype");
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 :root {
   /* ---- type families ---- */
   --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, monospace; /* dialogue / buttons */
   --display: "Quedami", "Helvetica Neue", Arial, sans-serif; /* headings */
   --serif: "Crimson Text", Georgia, "Times New Roman", serif; /* long-form body */
+  --wordmark: "Glasset Demo", "Quedami", "Helvetica Neue", Arial, sans-serif; /* top-left lockup */
 
   /* ---- brand palette (from swatch) ---- */
   --c-blue: #a7d8e5;
@@ -38,6 +49,16 @@
       rgba(218, 242, 247, 0.199) 100%
   );
   --glass-blur: blur(0px) saturate(100%) brightness(0.95);
+  /* Heavy frost for the content clouds only — they carry long-form reading
+     text over the live tank, so the scene behind should read as colour and
+     movement rather than as shapes competing with the paragraphs.
+     Deliberately blur() ALONE: --glass-blur's brightness(0.95) darkens the
+     backdrop 5%, which reads as the panel becoming more solid. A pure blur
+     leaves every pixel's luminance and alpha exactly as they were and only
+     defocuses them, so the glass looks no less transparent than before.
+     Its own variable, not a bump to --glass-blur, so the chat bubbles / CTA /
+     sidebar keep the crisp material. Dial the radius here. */
+  --cloud-blur: blur(22px);
   --glass-rim: rgba(255, 255, 255, 1);
   /* light halo so the solid dark text stays legible on the transparent glass */
 
@@ -103,9 +124,11 @@ canvas {
   top: 3vh;
   left: 3vw;
   z-index: 8;
-  font-family: var(--mono);
-  font-weight: 500;
-  font-size: clamp(13px, 1.5vw, 18px);
+  font-family: var(--wordmark);
+  font-weight: normal; /* the Glasset demo ships a single weight, like Quedami */
+  /* a display face reads noticeably smaller than the mono it replaces at the
+     same px, so the lockup is stepped up to hold its old visual weight */
+  font-size: clamp(18px, 2.1vw, 26px);
   letter-spacing: 0.16em;
   color: #eafaf6;
   text-shadow: 0 1px 12px rgba(6, 28, 34, 0.6);
@@ -251,8 +274,8 @@ canvas {
   background-image: var(--cloud-mask);
   background-repeat: no-repeat;
   background-size: 100% 100%;
-  -webkit-backdrop-filter: var(--glass-blur);
-  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--cloud-blur);
+  backdrop-filter: var(--cloud-blur);
   box-shadow: var(--glass-depth);
   /* same crisp double-rim as the conversation bubbles + sidebar */
   filter: drop-shadow(0 0 6px var(--glass-rim))
@@ -419,7 +442,7 @@ canvas {
     font-size: clamp(38px, 13vw, 64px);
   }
   .wordmark {
-    font-size: 12px;
+    font-size: 17px;
   }
 
   /* iMessage-style chat column, anchored above the creatures, grows upward */
@@ -492,6 +515,11 @@ canvas {
        and no saturation change, so the only thing lost here is a 5% darken of
        whatever sits behind an already-frosted panel */
     --glass-blur: none;
+    /* --cloud-blur is a real 22px radius, i.e. exactly the kind of pass this
+       whole block exists to keep off phone GPUs — a wide-radius blur re-run
+       every frame against the live tank behind it. The cloud keeps its own
+       painted fill + rim, so dropping it costs frost, not the shape. */
+    --cloud-blur: none;
   }
   /* the #glassWarp refraction overlays: an SVG displacement-map filter, by far
      the most expensive effect on the page. Their parents keep their own
