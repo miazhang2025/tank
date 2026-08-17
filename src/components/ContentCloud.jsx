@@ -17,30 +17,25 @@ const REDUCE =
 const CAN_HOVER =
   typeof window !== 'undefined' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
 
-// project preview GIFs — hovering the cloud on these sections trails a
-// cursor-following clip, GSAP's own quickTo() cursor-follow pattern.
-const PREVIEWS = {
-  'cassette-jury': '/preview/cassette-jury.gif',
-  'santa-beer': '/preview/santa-beer.gif',
-  flaneur: '/preview/flaneur.gif',
-};
-
 /**
  * Frosted "thought bubble" holding a section's long-form content:
  * Darker Grotesque heading + Crimson Text body + IBM Plex Mono button.
  * Placement is per-section CSS (keyed off the parent layer's data-section).
  *
- * `interactive` (default true): prop-model sections keep the cloud mounted but
- * closed — pointer-events must be off then, or the invisible cloud would eat
- * the clicks/hover meant for the 3D model sitting behind it.
+ * `preview`: optional clip URL that trails the cursor while the cloud is
+ * hovered (GSAP's quickTo cursor-follow pattern).
+ *
+ * `interactive` (default true): a cloud that is mounted but closed must have
+ * pointer-events off, or it eats the clicks/hover meant for whatever sits
+ * behind the frosted glass.
  */
-export default function ContentCloud({ content, active, id, interactive = true }) {
+export default function ContentCloud({ content, active, preview = null, interactive = true }) {
   const ref = useRef(null);
   const btnRef = useRef(null);
   const shapeRef = useRef(null);
   const splitsRef = useRef([]); // active SplitText instances, reverted before every re-split
   const previewRef = useRef(null);
-  const previewSrc = CAN_HOVER ? PREVIEWS[id] : null;
+  const previewSrc = CAN_HOVER ? preview : null;
   const [previewLoaded, setPreviewLoaded] = useState(false);
 
   // revert any lingering line-splits on unmount so the original text nodes

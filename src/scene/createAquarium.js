@@ -2,7 +2,6 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { NOISE } from './shaders.js';
 import { STAGE, FOCUS_DIST } from './choreography.js';
-import { SECTIONS } from '../content/sections.js';
 
 // The reference scene predates three.js colour management. Disable it so raw
 // THREE.Color uniform values stay the same byte-for-byte as r128 (the custom
@@ -48,9 +47,11 @@ export function createAquarium(container, opts = {}) {
   const FOG_DENSITY = 0.055;
   const NEAR = 0.1,
     FAR = 70.0;
-  // sections with stageLight:1 in choreography.js (the dive sequence) — kept
-  // as a literal set here since it's just used to hide the water surface
-  const STAGE_LIGHT_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
+  // Below this camera depth the shallow-water shell (surface at y=6.2, floor at
+  // y=−5.2) is hidden — see the note at its use in tick(). Derived from camY
+  // rather than a hard-coded list of section ids, so adding a deep section
+  // needs no bookkeeping here.
+  const SHELL_HIDE_DEPTH = -1.2;
 
   // ---------- live control bridge (GSAP / React mutate these; tick() reads them) ----------
   const [_envR0, _envG0, _envB0] = [
@@ -62,11 +63,18 @@ export function createAquarium(container, opts = {}) {
     introY: 1, // 1 = camera parked high above (loader); 0 = settled into the main framing
     cameraZ: STAGE.main.cameraZ, // base camera z (scroll moves the camera along z)
     camY: STAGE.main.camY ?? 0, // per-stage vertical camera offset (world y) — sinks the rig down
+    camFollow: STAGE.main.camFollow ?? 0.72, // 0..1 how much the look-at target follows camY (1 = no dive tilt)
     focusDist: FOCUS_DIST, // view-space depth of the focal plane (creatures + mouse bubbles)
     activeSection: 'main', // nearest section id, kept in sync by Stage.jsx on scroll
-    propAnchor: null, // active section's prop-model anchor {sx,sy,scale,yaw} — set by Stage.jsx (breakpoint-aware), null when the section has none
+    activeProject: null, // selected project id while in `work` — drives the per-project creature beats
+    lineupAnchor: null, // `work`'s project-orb arc {sx,sy,spread,bend,depth} — set by Stage.jsx (breakpoint-aware), null elsewhere
+    lineupHidden: false, // true while a case study is open — the lineup fades back to leave the frame to it
+    bigTitle: null, // {text, sx, sy, h} for the in-scene title behind the creatures — set by Stage.jsx
+    projectP: 0, // fractional slot index into the lineup (tweened by the work UI)
+    socialAnchor: null, // `more`'s social-link cluster {sx,sy,spread,depth,scale} — set by Stage.jsx, null elsewhere
     envR: _envR0, envG: _envG0, envB: _envB0, // per-stage environment/fog tint (0..1 channels)
     stageLight: STAGE.main.stageLight ?? 0, // 0..1 "lit stage" mood: dimmer + overhead spotlight
+    deepGlow: STAGE.main.deepGlow ?? 0, // 0..1 pale light pool below the stage depth (see choreography.js)
     creatures: {
       axolotl: { sx: STAGE.main.axolotl.sx, sy: STAGE.main.axolotl.sy, scale: 1, opacity: 1 },
       octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 0.8, opacity: 1 },
@@ -100,8 +108,11 @@ export function createAquarium(container, opts = {}) {
   const camera = new THREE.PerspectiveCamera(56, window.innerWidth / window.innerHeight, NEAR, FAR);
   const CAM_BASE = new THREE.Vector3(0, -1.7, 9.4);
   const CAM_TARGET = new THREE.Vector3(0, -0.1, -1.0);
-  // how much of the camera's vertical dive (controls.camY) the look-at target
-  // follows — see the tilt-vs-DOF comment at its use in tick()
+  // Default for how much of the camera's vertical dive (controls.camY) the
+  // look-at target follows — see the tilt-vs-DOF comment at its use in tick().
+  // Per-section override via `camFollow` in choreography.js: the closer to 1,
+  // the flatter the view (a section can trade its upward tilt for seeing what
+  // is directly ahead/below, which is what `more` does to show the pale bed).
   const CAM_TARGET_FOLLOW = 0.72;
   const _lookTarget = new THREE.Vector3();
   camera.position.copy(CAM_BASE);
@@ -168,6 +179,32 @@ export function createAquarium(container, opts = {}) {
   const back = new THREE.Mesh(new THREE.PlaneGeometry(90, 60), backMat);
   back.position.set(0, 3, -16);
   scene.add(back);
+
+  // ---------- the pale bed far below (drives `more`'s bright bottom) ----------
+  // The last section keeps DESCENDING but has to read as bright, and the
+  // shallow-water shell it left behind (surface y=6.2, floor y=−5.2) can't come
+  // back at that depth without swinging into frame (see SHELL_HIDE_DEPTH). So
+  // the brightness comes from a SECOND bed much further down, in pale sand
+  // instead of the tank's dark green: the camera sinks toward it, it rises into
+  // the lower part of the frame, and the fog thins at the same time so it
+  // actually reads instead of washing flat. Faded in by controls.deepGlow.
+  // Brand cream (--c-cream), same family as `more`'s environment tint, so the
+  // bed and the water it fades into read as one warm light rather than two.
+  const deepFloorMat = causticMat(0xfffaf0); // near-white caustic net…
+  deepFloorMat.uniforms.uDeep.value.setHex(0xf0e4cd); // …over cream sand
+  const deepFloor = new THREE.Mesh(new THREE.PlaneGeometry(140, 140), deepFloorMat);
+  deepFloor.rotation.x = -Math.PI / 2;
+  // Placed so the creatures stand ON it at `more`'s framing, not behind it.
+  // The camera bottoms out at CAM_BASE.y (−1.7) + camY (−9) = −10.7 and looks
+  // nearly level there (camFollow 0.96), which puts this plane's horizon at eye
+  // level — so the bed fills the lower half of the frame. A bed only slightly
+  // below the camera would intersect the creatures' screen rays NEARER than
+  // their 6-unit focal depth and occlude them; dropping it to roughly
+  // (creature screen offset + half their height) below the camera puts that
+  // intersection just past their feet instead.
+  deepFloor.position.y = -13.4;
+  deepFloor.visible = false;
+  scene.add(deepFloor);
 
   // dim vertical bars in the deep background (the "stuff behind the glass")
   const barMat = new THREE.MeshStandardMaterial({ color: 0x123f49, roughness: 0.9, emissive: 0x06222a });
@@ -728,7 +765,9 @@ export function createAquarium(container, opts = {}) {
     },
   };
 
-  // ---------- cassette-jury only: octopus randomly turns + strikes the axolotl ----------
+  // ---------- Cassette Jury only: octopus randomly turns + strikes the axolotl ----------
+  // v2: triggered by the SELECTED PROJECT in the work lineup (controls.activeProject),
+  // not by a section id — cassette-jury is one orb among many now.
   // Reuses the octopus's existing "swim" slot, which is already bound to its
   // GLB's rigged "Attack" clip (see loadCreatures below) — no procedural pose,
   // just a deliberate one-shot trigger instead of the movement-driven blend.
@@ -768,7 +807,7 @@ export function createAquarium(container, opts = {}) {
       axo = creatureState.axolotl;
     const fx = attackFX;
     if (!octo.obj || !axo.obj) return;
-    const inSection = controls.activeSection === 'cassette-jury';
+    const inSection = controls.activeProject === 'cassette-jury';
 
     if (!inSection) {
       if (fx.phase !== 'idle') {
@@ -891,13 +930,13 @@ export function createAquarium(container, opts = {}) {
       const speed = st.prev.distanceTo(st.base) / Math.max(dt, 1e-3);
       const target = speed > 0.5 ? 1 : 0;
       st.swimBlend += (target - st.swimBlend) * Math.min(1, dt * 3.5);
-      // axolotl-only: the flâneur section has a looping dance clip that takes
-      // over from idle/swim while parked there, crossfading both ways so the
-      // handoff never pops. It dances in bursts (a few seconds on, a
-      // couple off) rather than nonstop, panning to face the centred content
-      // as each burst starts and panning back as it pauses.
+      // axolotl-only: a looping dance clip takes over from idle/swim while the
+      // Flâneur project is the selected one in the work lineup, crossfading
+      // both ways so the handoff never pops. It dances in bursts (a few
+      // seconds on, a couple off) rather than nonstop, panning to face the
+      // lineup as each burst starts and panning back as it pauses.
       if (id === 'axolotl' && st.dance) {
-        const inSection = controls.activeSection === 'flaneur';
+        const inSection = controls.activeProject === 'flaneur';
         if (inSection) {
           st.danceCycle.timer -= dt;
           if (st.danceCycle.timer <= 0) {
@@ -1153,6 +1192,13 @@ export function createAquarium(container, opts = {}) {
   }
   function onMove(x, y) {
     pointerWorld(x, y);
+    // The cursor still tracks over DOM UI (the orbs need to know where it is),
+    // but it stops leaving a bubble trail there — a stream of bubbles rising
+    // through a page of case-study text is just noise over the words.
+    if (pointerOnUI) {
+      lastEmit = null;
+      return;
+    }
     if (lastEmit) {
       const dx = pWorld.x - lastEmit.x,
         dy = pWorld.y - lastEmit.y,
@@ -1201,350 +1247,470 @@ export function createAquarium(container, opts = {}) {
     const t = e.touches[0];
     if (t) onMove(t.clientX, t.clientY);
   };
-  const onMouseDown = (e) => burst(e.clientX, e.clientY);
+  const onUISurface = (e) => !!(e.target && e.target.closest && e.target.closest('.ui-surface'));
+  const onMouseDown = (e) => {
+    if (!onUISurface(e)) burst(e.clientX, e.clientY);
+  };
   const onTouchStart = (e) => {
     const t = e.touches[0];
-    if (t) burst(t.clientX, t.clientY);
+    if (t && !onUISurface(e)) burst(t.clientX, t.clientY);
   };
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('touchmove', onTouchMove, { passive: true });
   window.addEventListener('mousedown', onMouseDown);
   window.addEventListener('touchstart', onTouchStart, { passive: true });
 
-  // ---------- section prop models (cassette-jury / santa-beer / flaneur) ----------
-  // Each project section shows its own 3D model where the content cloud used
-  // to sit. On arrival the model FALLS in from above the frame — accelerating
-  // like a real object dropped into the tank, trailing a bubble wake, then
-  // splashing and settling with a damped bob. It idles on the focal plane
-  // (always sharp), reacts to hover (pointer cursor, slight grow + tilt
-  // toward the cursor), and clicking it is what opens the section's content
-  // cloud: React registers a callback per section in `propClickHandlers`
-  // (exposed on the returned API). Leaving the section fades the prop out and
-  // re-arms the drop so every re-entry replays it.
-  const propUrls = opts.propUrls ?? {
-    'cassette-jury': '/models/cassette-jury.glb',
-    'santa-beer': '/models/santa-beer.glb',
-    'flaneur': '/models/flaneur.glb',
-  };
-  const PROP_HEIGHT = 3.0; // world height at prop.scale 1 (creatures are 1.75)
-  // Props read darker than the creatures under the dimmed lit-stage look —
-  // several of the models are near-black materials to begin with (cassette
-  // deck, beer bottle) — so they get their own brightness lift on top of the
-  // creatures' dim curve. >1 is fine: uDim is a plain colour multiplier.
-  const PROP_LIGHT_BOOST = 1.45;
-  const PROP_DROP_FROM = 8.5; // drop start, world units above the rest point (well off the top of the frame)
-  const PROP_DROP_DUR = 1.1; // seconds of free fall
-  const propClickHandlers = {}; // section id -> cb(id), registered by Section.jsx
-  const propState = {};
-  for (const id of Object.keys(propUrls)) {
-    propState[id] = {
-      obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
-      pos: new THREE.Vector3(), mixer: null, yaw: 0,
-      fade: 0, dropT: -1, landT: 0, splashed: false, hoverBlend: 0,
-      phase: Math.random() * 6.28,
-    };
-  }
-  (function loadProps() {
-    for (const id of Object.keys(propUrls)) {
-      const st = propState[id];
-      loader.load(
-        propUrls[id],
-        (gltf) => {
-          if (disposed) return;
-          const prep = prepCreature(gltf); // same candy material / centring / group nesting as the creatures
-          st.obj = prep.object;
-          st.inner = prep.inner;
-          st.mats = prep.mats;
-          st.norm = 1 / (prep.height || 1);
-          st.size.copy(prep.size);
-          if (prep.animations.length) {
-            st.mixer = new THREE.AnimationMixer(prep.animRoot);
-            st.mixer.clipAction(prep.animations[0]).play();
-          }
-          st.obj.visible = false;
-          scene.add(st.obj);
-        },
-        undefined,
-        (err) => console.error('prop load failed', id, err),
-      );
-    }
-  })();
-
-  // ---------- 3D section titles (BEHIND the prop models) ----------
-  // The movie-style section name must be occluded by the 3D model, and DOM
-  // can never paint under WebGL content — so the title lives in the scene
-  // itself: the text is rasterised to a canvas texture on a camera-facing
-  // plane placed just behind the model's back face. Sitting a little past
-  // the focal plane, the DOF pass softens it slightly, which reads as depth.
-  // Section.jsx skips its DOM <h2> for these sections.
-  // Brand red pre-darkened to compensate for the post pipeline: colour
-  // management is disabled scene-wide and the custom composite shaders do
-  // their own gamma, which washes a raw sRGB canvas texel out pale — this
-  // value round-trips to roughly --c-red (#d94e3b) on screen.
-  const TITLE_COLOR = '#b2200f';
-  const TITLE_FONT_PX = 240; // raster resolution, not on-screen size
-  const TITLE_SCREEN_H = 0.19; // on-screen glyph height as a fraction of viewport height
-  const TITLE_SY_LIFT = 0.17; // raised above the model's anchor so the name peeks over it
-  const titleState = {}; // id -> { mesh, aspect, hFactor }
-  function buildPropTitles() {
-    for (const id of Object.keys(propUrls)) {
-      if (titleState[id]) continue;
-      const section = SECTIONS.find((s) => s.id === id);
-      if (!section || !section.title) continue;
-      const text = section.title;
-      const font = `${TITLE_FONT_PX}px Quedami, "Helvetica Neue", Arial, sans-serif`;
-      const cv = document.createElement('canvas');
-      let ctx = cv.getContext('2d');
-      ctx.font = font;
-      const pad = TITLE_FONT_PX * 0.2; // accents/descenders overhang the em box
-      cv.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
-      cv.height = Math.ceil(TITLE_FONT_PX * 1.5);
-      ctx = cv.getContext('2d'); // resizing reset the context state
-      ctx.font = font;
-      ctx.fillStyle = TITLE_COLOR;
-      ctx.textBaseline = 'middle';
-      ctx.fillText(text, pad, cv.height * 0.55);
-      const tex = new THREE.CanvasTexture(cv);
-      tex.anisotropy = 4;
-      // Lives in fxScene (composited AFTER the depth-of-field pass, like the
-      // mouse bubbles) so the text stays CRISP — in the main scene the DOF
-      // smeared it illegible. fxScene has no depth buffer from the scene, so
-      // occlusion is done by hand: sample the scene pass's depth texture and
-      // discard wherever something (the prop model) sits nearer than the
-      // title plane.
-      const mesh = new THREE.Mesh(
-        new THREE.PlaneGeometry(1, 1),
-        new THREE.ShaderMaterial({
-          transparent: true,
-          depthWrite: false,
-          depthTest: false,
-          uniforms: {
-            uMap: { value: tex },
-            uOpacity: { value: 0 },
-            tDepth: { value: null }, // rebound every frame — resize recreates the target
-            uRes: { value: new THREE.Vector2(1, 1) },
-            uNear: { value: NEAR },
-            uFar: { value: FAR },
-          },
-          vertexShader: /* glsl */ `
-            varying vec2 vUv; varying float vViewZ;
-            void main(){
-              vUv = uv;
-              vec4 mv = modelViewMatrix * vec4(position, 1.0);
-              vViewZ = mv.z;
-              gl_Position = projectionMatrix * mv;
-            }`,
-          fragmentShader: /* glsl */ `
-            #include <packing>
-            uniform sampler2D uMap; uniform sampler2D tDepth;
-            uniform vec2 uRes; uniform float uNear; uniform float uFar; uniform float uOpacity;
-            varying vec2 vUv; varying float vViewZ;
-            void main(){
-              vec4 c = texture2D(uMap, vUv);
-              float a = c.a * uOpacity;
-              if (a < 0.01) discard;
-              float sceneZ = perspectiveDepthToViewZ(texture2D(tDepth, gl_FragCoord.xy / uRes).x, uNear, uFar);
-              // view-space z is negative ahead of the camera: greater = nearer.
-              if (sceneZ > vViewZ + 0.05) discard; // the scene (the model) is in front
-              gl_FragColor = vec4(c.rgb, a);
-            }`,
-        }),
-      );
-      mesh.visible = false;
-      fxScene.add(mesh);
-      titleState[id] = { mesh, aspect: cv.width / cv.height, hFactor: cv.height / TITLE_FONT_PX };
-    }
-  }
-  // wait for the display font — rasterising before it lands would bake the
-  // fallback face into the texture for the whole session
-  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => {
-      if (!disposed) buildPropTitles();
-    });
-  } else {
-    buildPropTitles();
-  }
-
-  // hover needs to know the pointer has actually moved (it starts parked at
-  // NDC 0,0 = screen centre, right where the props sit) and whether it's over
-  // DOM UI (the open content cloud) rather than the tank.
+  // ---------- scene pointer tracking (shared by every hover-able scene object) ----------
+  // Hover needs to know the pointer has actually moved (it starts parked at
+  // NDC 0,0 = screen centre, right where the project lineup sits) and whether
+  // it is over DOM UI (the project panel / rail) rather than the tank itself.
+  //
+  // Touch browsers synthesise a mousemove on tap, which would arm `hasPointer`
+  // for the rest of the session — and from then on every frame would run a
+  // raycast to drive a hover state a touch device can't show. Never arming it
+  // on mobile skips that pass entirely; tap-to-select still works, since taps
+  // raycast on their own, once per tap.
   let hasPointer = false;
   let pointerOnUI = false;
-  let propCursorOn = false;
-  const onPropPointerTrack = (e) => {
+  const onScenePointerTrack = (e) => {
     hasPointer = true;
-    pointerOnUI = !!(e.target && e.target.closest && e.target.closest('.content-cloud'));
+    pointerOnUI = !!(e.target && e.target.closest && e.target.closest('.ui-surface'));
   };
-  // Touch browsers synthesise a mousemove on tap, which armed `hasPointer` for
-  // the rest of the session — and from then on updateProps ran a full recursive
-  // raycast against the active prop's un-accelerated geometry (flâneur is ~90k
-  // verts) on EVERY frame, to drive a hover state a touch device can't show.
-  // Never arming it on mobile skips that pass entirely; tap-to-open still works,
-  // since handlePropTap raycasts on its own, once per tap.
-  if (!LOW_POWER) window.addEventListener('mousemove', onPropPointerTrack);
+  if (!LOW_POWER) window.addEventListener('mousemove', onScenePointerTrack);
 
-  // click/tap → raycast the active section's prop and fire its React callback.
-  // Clicks landing on the open content cloud are ignored so interacting with
-  // the cloud never "clicks through" to the model behind the frosted glass.
-  function handlePropTap(x, y, domTarget) {
-    if (domTarget && domTarget.closest && domTarget.closest('.content-cloud')) return;
-    const id = controls.activeSection;
-    const st = propState[id];
-    if (!st || !st.obj || controls.diveActive || st.dropT < PROP_DROP_DUR || st.fade < 0.5) return;
-    pointerWorld(x, y); // updates the shared `pointer` NDC
-    ray.setFromCamera(pointer, camera);
-    if (ray.intersectObject(st.obj, true).length) {
-      const cb = propClickHandlers[id];
-      if (cb) cb(id);
+  // ---------- the big in-scene title ----------
+  // `main`'s wordmark-scale "Creche Tank" sits BEHIND the creatures — they swim
+  // in front of the letters. DOM can never paint under WebGL, so this can't be
+  // an <h1>: the text is rasterised to a canvas texture on a camera-facing
+  // plane just past the focal plane.
+  //
+  // It lives in fxScene (composited AFTER the depth-of-field pass, like the
+  // mouse bubbles) so the text stays CRISP. In the main scene it disappeared:
+  // a transparent, non-depth-writing quad leaves the DOF pass reading the depth
+  // of whatever is BEHIND it — the far back wall — so it blurred the letters
+  // into nothing. fxScene has no depth buffer of its own, so the occlusion is
+  // done by hand instead: sample the scene pass's depth texture and discard
+  // wherever something (a creature) sits nearer than the title plane.
+  //
+  // Colour is pre-darkened: colour management is disabled scene-wide and the
+  // composite does its own gamma, which washes a raw sRGB canvas texel out
+  // pale. This value round-trips to roughly --c-red (#d94e3b) on screen.
+  const BIG_TITLE_COLOR = '#8c1103';
+  // Raster resolution, not on-screen size — and it has to beat the DEVICE
+  // pixels the title covers, not the CSS ones. At 300 the texture was being
+  // magnified ~1.5x on a 2x display, which reads exactly like the title being
+  // off the focal plane.
+  const BIG_TITLE_FONT_PX = 480;
+  const bigTitle = { mesh: null, aspect: 1, hFactor: 1, text: null, fade: 0 };
+
+  function buildBigTitle(text) {
+    if (bigTitle.text === text) return;
+    bigTitle.text = text;
+    if (bigTitle.mesh) {
+      fxScene.remove(bigTitle.mesh);
+      bigTitle.mesh.material.uniforms.uMap.value.dispose();
+      bigTitle.mesh.material.dispose();
+      bigTitle.mesh.geometry.dispose();
+      bigTitle.mesh = null;
     }
+    if (!text) return;
+    const font = `${BIG_TITLE_FONT_PX}px Quedami, "Helvetica Neue", Arial, sans-serif`;
+    const cv = document.createElement('canvas');
+    let ctx = cv.getContext('2d');
+    ctx.font = font;
+    const pad = BIG_TITLE_FONT_PX * 0.2; // accents/descenders overhang the em box
+    cv.width = Math.ceil(ctx.measureText(text).width) + pad * 2;
+    cv.height = Math.ceil(BIG_TITLE_FONT_PX * 1.5);
+    ctx = cv.getContext('2d'); // resizing reset the context state
+    ctx.font = font;
+    ctx.fillStyle = BIG_TITLE_COLOR;
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, pad, cv.height * 0.55);
+    const tex = new THREE.CanvasTexture(cv);
+    tex.anisotropy = 4;
+    const mesh = new THREE.Mesh(
+      new THREE.PlaneGeometry(1, 1),
+      new THREE.ShaderMaterial({
+        transparent: true,
+        depthWrite: false,
+        depthTest: false,
+        uniforms: {
+          uMap: { value: tex },
+          uOpacity: { value: 0 },
+          tDepth: { value: null }, // rebound every frame — resize recreates the target
+          uRes: { value: new THREE.Vector2(1, 1) },
+          uNear: { value: NEAR },
+          uFar: { value: FAR },
+        },
+        vertexShader: /* glsl */ `
+          varying vec2 vUv; varying float vViewZ;
+          void main(){
+            vUv = uv;
+            vec4 mv = modelViewMatrix * vec4(position, 1.0);
+            vViewZ = mv.z;
+            gl_Position = projectionMatrix * mv;
+          }`,
+        fragmentShader: /* glsl */ `
+          #include <packing>
+          uniform sampler2D uMap; uniform sampler2D tDepth;
+          uniform vec2 uRes; uniform float uNear; uniform float uFar; uniform float uOpacity;
+          varying vec2 vUv; varying float vViewZ;
+          void main(){
+            vec4 c = texture2D(uMap, vUv);
+            float a = c.a * uOpacity;
+            if (a < 0.01) discard;
+            float sceneZ = perspectiveDepthToViewZ(texture2D(tDepth, gl_FragCoord.xy / uRes).x, uNear, uFar);
+            // view-space z is negative ahead of the camera: greater = nearer.
+            if (sceneZ > vViewZ + 0.05) discard; // a creature is in front here
+            gl_FragColor = vec4(c.rgb, a);
+          }`,
+      }),
+    );
+    mesh.visible = false;
+    fxScene.add(mesh);
+    bigTitle.mesh = mesh;
+    bigTitle.aspect = cv.width / cv.height;
+    bigTitle.hFactor = cv.height / BIG_TITLE_FONT_PX;
   }
-  const onPropMouseDown = (e) => handlePropTap(e.clientX, e.clientY, e.target);
-  const onPropTouchStart = (e) => {
-    const t0 = e.touches[0];
-    if (t0) handlePropTap(t0.clientX, t0.clientY, e.target);
-  };
-  window.addEventListener('mousedown', onPropMouseDown);
-  window.addEventListener('touchstart', onPropTouchStart, { passive: true });
 
-  const _pwp = new THREE.Vector3();
-  const _twp = new THREE.Vector3();
-  const _res2 = new THREE.Vector2();
-  function updateProps(t, dt) {
-    // the prop only lives while its section is settled — held off during the
-    // cinematic dive (same reason as the chat bubbles: activeSection flips at
-    // the scroll crossing, well before the camera actually arrives)
-    const anchor = controls.propAnchor;
-    const targetId =
-      !controls.diveActive && anchor && propState[controls.activeSection]
-        ? controls.activeSection
-        : null;
-    let anyHover = false;
-    for (const id of Object.keys(propState)) {
-      const st = propState[id];
-      if (!st.obj) continue;
-      if (id !== targetId) {
-        // Not (or no longer) this section's turn. If it was still mid-fall —
-        // e.g. the drop armed during the dive-debounce window before
-        // diveActive flipped true — vanish outright instead of ghost-fading
-        // at the rest point; a settled prop fades out where it is, holding
-        // its last WORLD position (not re-anchored to the diving camera, so
-        // it reads as left behind in the water).
-        if (st.dropT >= 0 && st.dropT < PROP_DROP_DUR) st.fade = 0;
-        st.dropT = -1;
-        st.hoverBlend = 0;
-        st.fade += (0 - st.fade) * Math.min(1, dt * 7);
-        if (st.fade < 0.02) st.fade = 0;
-        for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
-        st.obj.visible = st.fade > 0.001;
-        const tsOut = titleState[id];
-        if (tsOut) {
-          // fades out in place alongside the prop (same "left behind" rule)
-          tsOut.mesh.material.uniforms.uOpacity.value = st.fade;
-          tsOut.mesh.visible = st.fade > 0.001;
+  const _btp = new THREE.Vector3();
+  const _btRes = new THREE.Vector2();
+  let lastBigCfg = null; // the placement the title is still fading out at
+  function updateBigTitle(dt) {
+    // held off during a dive for the same reason as everything else keyed to a
+    // section: activeSection flips at the scroll crossing, not on arrival
+    const on = !!controls.bigTitle && !controls.diveActive;
+    if (controls.bigTitle) lastBigCfg = controls.bigTitle;
+    // Leaving the section clears the config, but the title still needs its
+    // placement for the frames it takes to fade — and, more to the point, the
+    // opacity write below has to keep running. Returning early on a null config
+    // meant the material stayed at full opacity until `visible` flipped, so the
+    // title didn't fade out of `main` at all: it sat there opaque and popped.
+    const cfg = lastBigCfg;
+    if (on) buildBigTitle(controls.bigTitle.text);
+    bigTitle.fade += ((on ? 1 : 0) - bigTitle.fade) * Math.min(1, dt * 6);
+    const mesh = bigTitle.mesh;
+    if (!mesh) return;
+    mesh.visible = bigTitle.fade > 0.004;
+    if (!mesh.visible || !cfg) return;
+    const u = mesh.material.uniforms;
+    u.uOpacity.value = bigTitle.fade;
+    u.tDepth.value = rtScene.depthTexture; // rebound each frame: setSizes() recreates the target
+    u.uRes.value.copy(renderer.getDrawingBufferSize(_btRes));
+    // Just past the focal plane: far enough that the creatures (whose front
+    // faces sit ON it) are unambiguously in front of the letters, close enough
+    // that it reads as being in the same layer of water as them.
+    const depth = controls.focusDist + 0.9;
+    screenToWorld(cfg.sx, cfg.sy, depth, _btp);
+    mesh.position.copy(_btp);
+    mesh.quaternion.copy(camera.quaternion);
+    // constant on-screen glyph height, then clamped to the viewport width
+    const worldScreenH = 2 * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+    let h = worldScreenH * cfg.h * bigTitle.hFactor;
+    const maxW = worldScreenH * camera.aspect * (cfg.maxW ?? 0.92);
+    if (h * bigTitle.aspect > maxW) h = maxW / bigTitle.aspect;
+    mesh.scale.set(h * bigTitle.aspect, h, 1);
+  }
+  // wait for the display face — rasterising before it lands would bake the
+  // fallback into the texture for the whole session
+  if (typeof document !== 'undefined' && document.fonts && document.fonts.ready) {
+    document.fonts.ready.then(() => {
+      if (!disposed && bigTitle.text) {
+        const t = bigTitle.text;
+        bigTitle.text = null;
+        buildBigTitle(t); // re-raster now that Quedami is actually available
+      }
+    });
+  }
+
+  // ---------- orbs: the tank's clickable spheres ----------
+  // Two groups, one rig:
+  //
+  //   'work'    every project at once, strung along a vertical arc on the
+  //             right. React owns WHICH projects are on the arc and in what
+  //             order (filtering lives in the rail UI) and scrolls through them
+  //             by tweening controls.projectP — a FRACTIONAL slot index, so the
+  //             whole arc slides rather than snapping. The selected orb sits
+  //             exactly on the focal plane (= the one sharp orb, same trick as
+  //             the creatures) and every step away recedes in depth, so the
+  //             existing depth-of-field pass is what softens the rest. No
+  //             separate blur, and the lineup reads as something in the tank
+  //             rather than a HUD.
+  //
+  //   'social'  a small cluster in `more`, one orb per social link.
+  //
+  // What the two share — the material, the fade, the screen-space magnet, hit
+  // testing and the live screen anchors the DOM labels ride — is everything
+  // except where the orbs go, which is the one thing each group defines itself
+  // (`layout` below).
+  //
+  // Placeholder spheres for now: an entry's `model` GLB can replace its sphere
+  // later without changing any of the layout code.
+  const ORB_RADIUS = 0.44; // world radius of an orb at its full size
+  const ORB_FADE_FROM = 2.2; // slots from the selection where a lineup orb starts fading out
+  // Magnetism, all in SCREEN space — the pull has to start before the cursor is
+  // actually over the ball (that anticipation is the whole effect), and a
+  // raycast can only ever answer "on it / not on it". Screen space also makes
+  // one distance test per orb do the work of hover, magnet strength and hit
+  // testing, with no per-frame raycast against the meshes.
+  const ORB_MAGNET_REACH = 1.9; // pull starts this many orb-radii from its centre
+  const ORB_MAGNET_PULL = 0.24; // fraction of the cursor gap the orb closes…
+  const ORB_MAGNET_MAX = 30; // …capped this many CSS px, so it never leaves its slot
+  const orbGeo = new THREE.SphereGeometry(1, LOW_POWER ? 24 : 48, LOW_POWER ? 16 : 32);
+  let orbCursorOn = false;
+
+  /** id -> live screen-px anchor, for the DOM labels that ride each orb */
+  const orbAnchors = {};
+
+  // Fixed offsets (in "slot" units, scaled by the anchor's spread) for the
+  // social cluster — deliberately irregular so it reads as a handful of things
+  // floating in water rather than a menu. Cycled if there are more links.
+  const SOCIAL_SPOTS = [
+    { x: 0.0, y: 0.0, d: 0.0 },
+    { x: 0.86, y: 0.62, d: 0.5 },
+    { x: -0.62, y: 0.78, d: 0.8 },
+    { x: 0.34, y: -0.78, d: 0.35 },
+    { x: -0.9, y: -0.36, d: 0.9 },
+    { x: 1.05, y: -0.2, d: 1.2 },
+  ];
+
+  const orbGroups = {
+    work: {
+      orbs: [],
+      order: [], // ids currently on the arc, in order (set by React)
+      fade: 0,
+      lastAnchor: null,
+      click: null,
+      getAnchor: () => (controls.lineupHidden ? null : controls.lineupAnchor),
+      layout: (o, group, anchor) => {
+        const slot = group.order.indexOf(o.id);
+        if (slot < 0) return null; // filtered out — fades where it stands
+        const off = slot - controls.projectP;
+        const dist = Math.abs(off);
+        return {
+          sx: anchor.sx + anchor.bend * off * off,
+          sy: anchor.sy + anchor.spread * off,
+          depth: controls.focusDist + anchor.depth * dist,
+          // NOT perspective-compensated: letting the far orbs shrink naturally
+          // is half of what sells the depth. The selected one gets an extra
+          // bump on top so it reads as picked, not merely nearest. The anchor's
+          // own `scale` sizes the whole arc (portrait wants smaller balls — the
+          // same world radius eats far more of a narrow frame).
+          emphasis: (anchor.scale ?? 1) * (1 + 0.34 * Math.max(0, 1 - dist)),
+          want: Math.max(0, Math.min(1, ORB_FADE_FROM + 1 - dist)),
+          active: dist < 0.5,
+        };
+      },
+    },
+    social: {
+      orbs: [],
+      order: [],
+      fade: 0,
+      lastAnchor: null,
+      click: null,
+      getAnchor: () => controls.socialAnchor,
+      layout: (o, group, anchor) => {
+        const i = group.order.indexOf(o.id);
+        if (i < 0) return null;
+        const spot = SOCIAL_SPOTS[i % SOCIAL_SPOTS.length];
+        return {
+          sx: anchor.sx + spot.x * anchor.spread,
+          sy: anchor.sy + spot.y * anchor.spread,
+          depth: controls.focusDist + spot.d * (anchor.depth ?? 1),
+          emphasis: anchor.scale ?? 0.8,
+          want: 1,
+          active: true, // every link label reads in full; there's no selection here
+        };
+      },
+    },
+  };
+
+  /**
+   * (Re)build a group's orbs. `list` is [{ id, color }] in display order;
+   * anything previously built for that group is disposed.
+   */
+  function setOrbs(groupName, list) {
+    const group = orbGroups[groupName];
+    if (!group) return;
+    for (const o of group.orbs) {
+      scene.remove(o.mesh);
+      o.mat.dispose();
+      delete orbAnchors[o.id];
+    }
+    group.orbs = (list || []).map((p, i) => {
+      // The creature material with no map is exactly the look wanted here: the
+      // same glossy candy shading, tinted flat by uTint, and already wired to
+      // the scene's fog / stage-dim / spotlight uniforms. (Its skinning chunks
+      // are inert without USE_SKINNING, i.e. on a plain Mesh like this one.)
+      const mat = makeCreatureMat(null, new THREE.Color(p.color).getHex());
+      // The creature defaults desaturate + brighten + heavily clear-coat toward
+      // the candy-toy look, which turns any pale tint into the same white ball.
+      // An orb IS its entry's colour, so it keeps more of the tint it's given.
+      mat.uniforms.uDesat.value = 0.12;
+      mat.uniforms.uBright.value = 1.0;
+      mat.uniforms.uCoat.value = 0.22;
+      mat.uniforms.uOpacity.value = 0;
+      const mesh = new THREE.Mesh(orbGeo, mat);
+      mesh.visible = false;
+      scene.add(mesh);
+      orbAnchors[p.id] = { x: 0, y: 0, visible: false, active: false, radius: 0, alpha: 0 };
+      return { id: p.id, mesh, mat, phase: i * 1.7, fade: 0, hover: 0 };
+    });
+    group.order = (list || []).map((p) => p.id);
+  }
+
+  /** Set which of a group's orbs are shown, and in what order. */
+  function setOrbOrder(groupName, ids) {
+    const group = orbGroups[groupName];
+    if (group) group.order = ids || [];
+  }
+
+  /** Register a group's click handler. */
+  function setOrbClickHandler(groupName, fn) {
+    const group = orbGroups[groupName];
+    if (group) group.click = fn;
+  }
+
+  // Click/tap → the orb whose disc the pointer is actually inside (not the
+  // wider magnet reach — being pulled toward a ball shouldn't make it clickable
+  // from a long way off). Clicks that land on DOM UI are ignored so the panel
+  // and rail never "click through" to the tank behind them.
+  function handleOrbTap(x, y, domTarget) {
+    if (domTarget && domTarget.closest && domTarget.closest('.ui-surface')) return;
+    let bestId = null;
+    let bestGroup = null;
+    let bestD = Infinity;
+    for (const group of Object.values(orbGroups)) {
+      if (!group.click || group.fade < 0.5) continue;
+      for (const o of group.orbs) {
+        const a = orbAnchors[o.id];
+        if (!a || !a.visible) continue;
+        const d = Math.hypot(x - a.x, y - a.y);
+        if (d < a.radius && d < bestD) {
+          bestId = o.id;
+          bestGroup = group;
+          bestD = d;
         }
+      }
+    }
+    if (bestId) bestGroup.click(bestId);
+  }
+  const onOrbMouseDown = (e) => handleOrbTap(e.clientX, e.clientY, e.target);
+  const onOrbTouchStart = (e) => {
+    const t0 = e.touches[0];
+    if (t0) handleOrbTap(t0.clientX, t0.clientY, e.target);
+  };
+  window.addEventListener('mousedown', onOrbMouseDown);
+  window.addEventListener('touchstart', onOrbTouchStart, { passive: true });
+
+  const _owp = new THREE.Vector3();
+  function stepOrbGroup(group, t, dt) {
+    const live = group.getAnchor();
+    // held off during the cinematic dive for the same reason as the chat
+    // bubbles: activeSection flips at the scroll crossing, well before the
+    // camera has actually arrived
+    const on = !!live && !controls.diveActive && group.orbs.length > 0;
+    if (live) group.lastAnchor = live;
+    // Leaving the section clears the anchor immediately, but the orbs still
+    // need somewhere to be for the handful of frames they take to fade out —
+    // so the layout below runs off the LAST anchor, not the live one.
+    const anchor = group.lastAnchor;
+    group.fade += ((on ? 1 : 0) - group.fade) * Math.min(1, dt * 6);
+    if (!anchor || group.fade < 0.002) {
+      group.fade = 0;
+      for (const o of group.orbs) {
+        o.mesh.visible = false;
+        o.hover = 0;
+        orbAnchors[o.id].visible = false;
+      }
+      return false;
+    }
+
+    const W = window.innerWidth;
+    const H = window.innerHeight;
+    let anyHover = false;
+
+    for (const o of group.orbs) {
+      const L = group.layout(o, group, anchor);
+      const want = L ? L.want : 0; // not in the current order — fade out in place
+      o.fade += (want - o.fade) * Math.min(1, dt * 6);
+      const alpha = Math.min(1, o.fade) * group.fade;
+      o.mesh.visible = alpha > 0.004;
+      o.mat.uniforms.uOpacity.value = alpha;
+      const a = orbAnchors[o.id];
+      if (!o.mesh.visible || !L) {
+        a.visible = false;
         continue;
       }
-      if (st.dropT < 0) {
-        st.dropT = 0; // (re)arm: every section entry replays the drop
-        st.landT = 0;
-        st.splashed = false;
-        st.hoverBlend = 0;
-      }
-      st.dropT += dt;
-      st.fade += (1 - st.fade) * Math.min(1, dt * 10);
-      if (st.mixer) st.mixer.update(dt);
 
-      // seat it on the focal plane like the creatures: push it back by half
-      // its yawed bounding box projected onto the view axis so the FRONT face
-      // sits exactly on the plane (= always sharp under the tight DOF band).
-      // Uses last frame's yaw (like updateCreatures) — it changes slowly.
-      const S = st.norm * PROP_HEIGHT * (anchor.scale ?? 1);
-      const cy = Math.cos(st.yaw),
-        sny = Math.sin(st.yaw);
-      const hx = 0.5 * st.size.x * S,
-        hy = 0.5 * st.size.y * S,
-        hz = 0.5 * st.size.z * S;
-      const halfDepth =
-        hx * Math.abs(cy * _cfwd.x - sny * _cfwd.z) +
-        hy * Math.abs(_cfwd.y) +
-        hz * Math.abs(sny * _cfwd.x + cy * _cfwd.z);
-      const depth = controls.focusDist + halfDepth;
-      const sizeComp = depth / controls.focusDist;
-      screenToWorld(anchor.sx, anchor.sy, depth, _pwp);
+      let { sx, sy } = L;
+      let emphasis = L.emphasis;
+      // on-screen radius in CSS px — needed BEFORE placing the orb (the magnet
+      // below works in radii), and handed to the DOM labels afterwards
+      const halfH = L.depth * Math.tan(THREE.MathUtils.degToRad(camera.fov * 0.5));
+      let rPx = ((ORB_RADIUS * emphasis) / halfH) * (H * 0.5);
 
-      // drop-in: accelerating fall (p²) → splash burst → damped settle bob
-      let yOff = 0;
-      const falling = st.dropT < PROP_DROP_DUR;
-      if (falling) {
-        const p = st.dropT / PROP_DROP_DUR;
-        yOff = PROP_DROP_FROM * (1 - p * p);
-        // bubble wake trailing the fall
-        if (Math.random() < 0.75) {
-          emitBubble(_pwp.x, _pwp.y + yOff + rand(0.1, 0.6), _pwp.z, false);
-          emitBubble(_pwp.x, _pwp.y + yOff + rand(0.4, 1.2), _pwp.z, false);
+      // ---- magnet ----
+      let pull = 0;
+      if (hasPointer && !pointerOnUI && alpha > 0.5) {
+        const px = (pointer.x * 0.5 + 0.5) * W;
+        const py = (-pointer.y * 0.5 + 0.5) * H;
+        const dx = px - sx * W;
+        const dy = py - sy * H;
+        const d = Math.hypot(dx, dy);
+        const reach = rPx * ORB_MAGNET_REACH;
+        // full strength inside the disc, easing off to nothing at `reach`
+        pull = d <= rPx ? 1 : Math.max(0, 1 - (d - rPx) / Math.max(1, reach - rPx));
+        pull *= pull * (3 - 2 * pull); // smoothstep — no linear ramp on the way in
+        if (pull > 0 && d > 0.001) {
+          const grab = Math.min(ORB_MAGNET_MAX, d * ORB_MAGNET_PULL) * pull;
+          sx += ((dx / d) * grab) / W;
+          sy += ((dy / d) * grab) / H;
         }
-      } else {
-        if (!st.splashed) {
-          st.splashed = true;
-          for (let n = 0; n < 16; n++) emitBubble(_pwp.x, _pwp.y, _pwp.z, true);
-          for (let n = 0; n < 10; n++) emitBubble(_pwp.x, _pwp.y, _pwp.z, false);
-        }
-        st.landT += dt;
-        // plunges a touch past the rest point on impact, then springs back
-        yOff = Math.sin(st.landT * 7.0) * -0.22 * Math.exp(-st.landT * 3.2);
+      }
+      o.hover += (pull - o.hover) * Math.min(1, dt * 12);
+      if (o.hover > 0.002) {
+        emphasis *= 1 + 0.1 * o.hover;
+        rPx *= 1 + 0.1 * o.hover;
       }
 
-      // hover: pointer cursor + slight grow + tilt toward the cursor
-      let hovered = false;
-      if (!falling && hasPointer && !pointerOnUI) {
-        ray.setFromCamera(pointer, camera);
-        hovered = ray.intersectObject(st.obj, true).length > 0;
-      }
-      anyHover = anyHover || hovered;
-      st.hoverBlend += ((hovered ? 1 : 0) - st.hoverBlend) * Math.min(1, dt * 8);
+      screenToWorld(sx, sy, L.depth, _owp);
+      o.mesh.position.set(
+        _owp.x,
+        _owp.y + Math.sin(t * 0.9 + o.phase) * 0.06, // slow float, so they never look pinned
+        _owp.z,
+      );
+      o.mesh.scale.setScalar(ORB_RADIUS * emphasis);
+      o.mesh.rotation.y += dt * 0.15;
+      anyHover = anyHover || o.hover > 0.5;
 
-      st.pos.set(_pwp.x, _pwp.y + yOff + Math.sin(t * 1.1 + st.phase) * 0.05, _pwp.z);
-      st.obj.position.copy(st.pos);
-      st.obj.scale.setScalar(S * sizeComp * (1 + 0.08 * st.hoverBlend));
-      // face the camera (plus the per-section yaw trim), sway gently, and
-      // lean toward the cursor while hovered
-      st.yaw = yawToFace(camera.position, st.pos, anchor.yaw ?? 0);
-      _proj.copy(st.pos).project(camera);
-      const tiltY = (pointer.x - _proj.x) * 0.35 * st.hoverBlend;
-      const tiltX = -(pointer.y - _proj.y) * 0.25 * st.hoverBlend;
-      st.inner.rotation.set(tiltX, st.yaw + Math.sin(t * 0.5 + st.phase) * 0.1 + tiltY, 0);
-      for (const m of st.mats) m.uniforms.uOpacity.value = st.fade;
-      st.obj.visible = true;
-
-      // The cinematic title: camera-facing plane, lifted above the model's
-      // anchor so the name peeks out over it. It only needs to sit a bit
-      // past the model's FRONT surface — the shader's manual depth test
-      // hides it wherever the model (always nearer) covers it.
-      const ts = titleState[id];
-      if (ts) {
-        const depthT = controls.focusDist + halfDepth + 0.4;
-        screenToWorld(anchor.sx, anchor.sy - TITLE_SY_LIFT, depthT, _twp);
-        ts.mesh.position.copy(_twp);
-        ts.mesh.quaternion.copy(camera.quaternion);
-        // constant on-screen GLYPH height (so all three titles match), then
-        // clamped to the viewport width for the long names on phones
-        const worldScreenH = 2 * depthT * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
-        let h = worldScreenH * TITLE_SCREEN_H * ts.hFactor;
-        const maxW = worldScreenH * camera.aspect * 0.94;
-        if (h * ts.aspect > maxW) h = maxW / ts.aspect;
-        ts.mesh.scale.set(h * ts.aspect, h, 1);
-        const u = ts.mesh.material.uniforms;
-        u.uOpacity.value = st.fade;
-        u.tDepth.value = rtScene.depthTexture; // rebound each frame: setSizes() recreates the target
-        u.uRes.value.copy(renderer.getDrawingBufferSize(_res2));
-        ts.mesh.visible = st.fade > 0.001;
-      }
+      _proj.copy(o.mesh.position).project(camera);
+      a.x = (_proj.x * 0.5 + 0.5) * W;
+      a.y = (-_proj.y * 0.5 + 0.5) * H;
+      a.visible = _proj.z < 1 && alpha > 0.25;
+      a.active = L.active;
+      a.alpha = alpha;
+      a.radius = rPx;
     }
-    if (anyHover !== propCursorOn) {
-      propCursorOn = anyHover;
+    return anyHover;
+  }
+
+  function updateOrbs(t, dt) {
+    let anyHover = false;
+    for (const group of Object.values(orbGroups)) {
+      anyHover = stepOrbGroup(group, t, dt) || anyHover;
+    }
+    // the selection drives the per-project creature beats (octopus strike on
+    // Cassette Jury, axolotl dance on Flâneur)
+    const work = orbGroups.work;
+    controls.activeProject =
+      work.fade > 0.5 ? work.order[Math.round(controls.projectP)] || null : null;
+    if (anyHover !== orbCursorOn) {
+      orbCursorOn = anyHover;
       document.body.style.cursor = anyHover ? 'pointer' : '';
     }
   }
+
 
   const SWIRL = 2.4;
   function updateBubbles(dt, t) {
@@ -1642,13 +1808,83 @@ export function createAquarium(container, opts = {}) {
   });
 
   // glass: edge/corner distortion, chromatic fringe, rim, vignette, grade
+  // ---------- ripple distortion (behind the translucent case-study panel) ----------
+  // The panel is semi-transparent, so what you read sits on top of the live
+  // tank. Dragging the cursor across it pushes the water behind the words: a
+  // trail of decaying ripples, each one displacing the composited frame.
+  //
+  // Done HERE, in the final composite, rather than in CSS: a
+  // `backdrop-filter: url(#svg-displacement)` was tried on this site before
+  // (DEV_PLAN Phase 7) and renders as flat opaque grey in real Chrome. The
+  // frame is already being resampled by this pass, so bending the lookup costs
+  // one extra offset — and it distorts the actual scene, not a snapshot of it.
+  const RIPPLE_TRAIL = 10; // cursor samples kept alive at once
+  const rippleTrail = new Array(RIPPLE_TRAIL).fill(null).map(() => new THREE.Vector3(0, 0, -1));
+  let rippleWrite = 0;
+  const _lastRipple = new THREE.Vector2(-9, -9);
   const glassMat = new THREE.ShaderMaterial({
-    uniforms: { tColor: { value: null }, uAspect: { value: 1.0 }, uMaxR: { value: 1.0 } },
+    uniforms: {
+      tColor: { value: null },
+      uAspect: { value: 1.0 },
+      uMaxR: { value: 1.0 },
+      uRipOn: { value: 0 }, // 0..1, eased — the panel's presence
+      uRipRect: { value: new THREE.Vector4(0, 0, 0, 0) }, // panel bounds in uv (x0,y0,x1,y1)
+      uRipTime: { value: 0 },
+      uRipTrail: { value: rippleTrail }, // vec3(uvX, uvY, birth); birth < 0 = empty slot
+    },
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
     fragmentShader: /* glsl */ `
       precision highp float; varying vec2 vUv; uniform sampler2D tColor; uniform float uAspect,uMaxR;
+      uniform float uRipOn, uRipTime; uniform vec4 uRipRect; uniform vec3 uRipTrail[${RIPPLE_TRAIL}];
       vec3 aces(vec3 x){ float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;
         return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0); }
+
+      // --- cursor ripple field ---
+      const float RIP_FADE   = 1.5;   // seconds a sample stays alive
+      const float RIP_BRUSH  = 0.06;  // reach of one sample (1.0 = viewport height)
+      const float RIP_FREQ   = 52.0;  // ring spacing
+      const float RIP_SPEED  = 13.0;  // how fast the rings travel outward
+      const float RIP_SWIRL  = 0.3;   // rotation of the push direction
+      const float RIP_AMOUNT = 0.001; // peak uv displacement
+      // Returns the displacement in .xy and the crest strength in .z. The crest
+      // is what makes the effect visible at all: the tank behind the panel is
+      // largely a smooth gradient, and bending a smooth gradient looks like
+      // nothing. Lighting the wave crests reads as water even where there is no
+      // detail to push around.
+      vec3 rippleField(vec2 uv){
+        if (uRipOn < 0.002) return vec3(0.0);
+        // soft-edged mask so the distortion stops AT the panel and doesn't cut
+        float mx = smoothstep(uRipRect.x, uRipRect.x + 0.015, uv.x)
+                 * (1.0 - smoothstep(uRipRect.z - 0.015, uRipRect.z, uv.x));
+        float my = smoothstep(uRipRect.y, uRipRect.y + 0.02, uv.y)
+                 * (1.0 - smoothstep(uRipRect.w - 0.02, uRipRect.w, uv.y));
+        float mask = mx * my * uRipOn;
+        if (mask < 0.002) return vec3(0.0);
+        // work in aspect-corrected space so the rings are round, not oval
+        vec2 p = vec2(uv.x * uAspect, uv.y);
+        vec2 acc = vec2(0.0);
+        float crest = 0.0;
+        for (int i = 0; i < ${RIPPLE_TRAIL}; i++){
+          vec3 s = uRipTrail[i];
+          float age = uRipTime - s.z;
+          if (s.z < 0.0 || age > RIP_FADE) continue;
+          vec2 d = p - vec2(s.x * uAspect, s.y);
+          float dist = length(d);
+          if (dist > RIP_BRUSH * 4.0) continue;
+          float life = 1.0 - age / RIP_FADE;
+          float falloff = exp(-dist / RIP_BRUSH) * life * life;
+          float wave = sin(dist * RIP_FREQ - age * RIP_SPEED);
+          vec2 dir = dist > 1e-5 ? d / dist : vec2(0.0);
+          float sw = RIP_SWIRL * life;
+          dir = vec2(dir.x * cos(sw) - dir.y * sin(sw), dir.x * sin(sw) + dir.y * cos(sw));
+          acc += dir * wave * falloff;
+          crest += wave * falloff;
+        }
+        vec2 o = acc * RIP_AMOUNT * mask;
+        o.x /= uAspect;
+        return vec3(o, crest * mask);
+      }
+
       void main(){
         vec2 c = vUv-0.5; c.x*=uAspect;
         float r2=dot(c,c); float r=sqrt(r2);
@@ -1657,13 +1893,18 @@ export function createAquarium(container, opts = {}) {
         float k = (0.19*r2 + 0.36*r2*r2)*edge;
         vec2 cd = c*(1.0+k);
         cd += sign(c)*(abs(c.x)*abs(c.y))*0.17*edge;
+        vec3 rip = rippleField(vUv);
         vec2 duv = cd; duv.x/=uAspect; duv+=0.5;
+        duv += rip.xy;
         vec2 dir = (r>1e-4)? c/r : vec2(0.0);
         vec2 ca = dir; ca.x/=uAspect; ca*=(0.004+0.032*r2)*edge;
         float cr=texture2D(tColor, clamp(duv+ca,0.0,1.0)).r;
         float cg=texture2D(tColor, clamp(duv,    0.0,1.0)).g;
         float cb=texture2D(tColor, clamp(duv-ca,0.0,1.0)).b;
         vec3 col=vec3(cr,cg,cb);
+        // light on the wave crests — the half of the effect that survives being
+        // seen through a translucent cream panel
+        col += vec3(0.55, 0.70, 0.72) * rip.z * 0.42;
         float rr=r/uMaxR;
         col += smoothstep(0.84,1.0,rr)*vec3(0.06,0.11,0.11);
         col *= mix(0.5,1.0,smoothstep(1.18,0.35,rr));
@@ -1672,6 +1913,30 @@ export function createAquarium(container, opts = {}) {
         gl_FragColor=vec4(col,1.0);
       }`,
   });
+
+  /**
+   * Tell the composite where the translucent panel is, so the ripple field is
+   * confined to it. `rect` is a DOMRect in CSS px; null switches the effect off.
+   */
+  function setRippleRect(rect) {
+    // Skipped on phones: it's a cursor effect with no cursor to drive it, and
+    // it would add a per-pixel loop over a full-screen panel on the hardware
+    // least able to afford one.
+    if (!rect || LOW_POWER) {
+      rippleRectOn = false;
+      return;
+    }
+    rippleRectOn = true;
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    glassMat.uniforms.uRipRect.value.set(
+      rect.left / w,
+      1 - rect.bottom / h, // uv y runs bottom-up; the rect's does not
+      rect.right / w,
+      1 - rect.top / h,
+    );
+  }
+  let rippleRectOn = false;
 
   function setSizes() {
     const w = window.innerWidth,
@@ -1726,7 +1991,11 @@ export function createAquarium(container, opts = {}) {
     // faces out of the DOF focal plane (their bounding-box "front" offset is
     // computed from the camera's forward vector, and a steep tilt inflates it).
     // Following most of the way keeps the tilt modest at any depth.
-    _lookTarget.set(CAM_TARGET.x, CAM_TARGET.y + controls.camY * CAM_TARGET_FOLLOW, CAM_TARGET.z);
+    _lookTarget.set(
+      CAM_TARGET.x,
+      CAM_TARGET.y + controls.camY * (controls.camFollow ?? CAM_TARGET_FOLLOW),
+      CAM_TARGET.z,
+    );
     camera.lookAt(_lookTarget);
 
     // ---------- environment tint + "lit stage" mood ----------
@@ -1746,26 +2015,42 @@ export function createAquarium(container, opts = {}) {
     const envDim = 1 - controls.stageLight * 0.78; // 1 → ~0.22 at full stage light
     const creatureDim = 1 - controls.stageLight * 0.08; // 1 → ~0.92 — stays bright
     const fishDim = 1 - controls.stageLight * 0.45; // 1 → ~0.55 — muted, not blacked out
+    // Fog thins as the deep bed fades in. Without this, a pale fog colour at
+    // the tank's normal density washes the whole frame to one flat tint — the
+    // section reads "bright" but has nothing in it. Thinning the fog is what
+    // lets the pale bed (and the creatures' own contrast) survive the change.
+    const fogScale = 1 - controls.deepGlow * 0.55;
+    scene.fog.density = FOG_DENSITY * fogScale;
     floorMat.uniforms.uFogColor.value.copy(_envColor);
     floorMat.uniforms.uDim.value = envDim;
+    floorMat.uniforms.uFogDensity.value = FOG_DENSITY * fogScale;
     backMat.uniforms.uFogColor.value.copy(_envColor);
     backMat.uniforms.uDim.value = envDim;
+    backMat.uniforms.uFogDensity.value = FOG_DENSITY * fogScale;
     surfaceMat.uniforms.uFogColor.value.copy(_envColor);
     surfaceMat.uniforms.uDim.value = envDim;
-    // hidden outright (not faded) through the whole dive sequence, including
-    // mid-transition — with the camera tilting steeply upward at depth, this
-    // plane (the tank's top boundary, seen from below) swings into the middle
-    // of the frame instead of staying near the top edge, reading as a stray
-    // "second surface" underwater rather than the ceiling it's meant to be.
-    // Keyed off activeSection (flips the instant scroll crosses the section
-    // boundary) rather than stageLight (which only ramps in over the dive),
-    // so it's gone from the moment the dive starts, not partway through.
-    const inStageLightSection = STAGE_LIGHT_SECTIONS.has(controls.activeSection);
-    surface.visible = !inStageLightSection;
-    // same problem, same fix, for the tank floor: once the camera sinks below
-    // it and tilts up, this flat opaque plane swings up into frame and cuts
-    // off the creatures' legs/tentacles instead of staying below them
-    floor.visible = !inStageLightSection;
+    surfaceMat.uniforms.uFogDensity.value = FOG_DENSITY * 0.7 * fogScale;
+    // the pale bed: only present once the descent is deep enough to see it
+    deepFloor.visible = controls.deepGlow > 0.01;
+    if (deepFloor.visible) {
+      deepFloorMat.uniforms.uTime.value = t * 0.6;
+      deepFloorMat.uniforms.uFogColor.value.copy(_envColor);
+      deepFloorMat.uniforms.uFogDensity.value = FOG_DENSITY * fogScale;
+      // ramps in with deepGlow so it doesn't pop on at the fade-in threshold
+      deepFloorMat.uniforms.uDim.value = controls.deepGlow;
+    }
+    // The shallow-water shell — water surface (y=6.2) + tank floor (y=−5.2) —
+    // is hidden outright (not faded) once the camera dives below
+    // SHELL_HIDE_DEPTH. Both are flat opaque planes built for the surface
+    // framing: at depth, with the view tilting upward, the surface swings into
+    // mid-frame reading as a stray "second surface" underwater, and the floor
+    // swings UP into frame and cuts off the creatures' legs/tentacles.
+    // Keyed off camY (which starts moving the instant a dive begins) rather
+    // than stageLight — `more` is deeper still but has stageLight 0, so a
+    // brightness-based test would wrongly bring both planes back there.
+    const deep = controls.camY < SHELL_HIDE_DEPTH;
+    surface.visible = !deep;
+    floor.visible = !deep;
     // fade the background school down too (not just dim its colour) — a busy
     // school of fish reads as clutter against a clean single-spotlight stage
     // look, so it recedes almost out of sight rather than just going darker
@@ -1774,25 +2059,24 @@ export function createAquarium(container, opts = {}) {
       g.mesh.material.uniforms.uFogColor.value.copy(_envColor);
       g.mesh.material.uniforms.uDim.value = fishDim;
       g.mesh.material.uniforms.uOpacity.value = 0.95 * fishOpacityMul;
+      g.mesh.material.uniforms.uFogDensity.value = FOG_DENSITY * fogScale;
     }
     for (const id of ['axolotl', 'octopus']) {
       for (const m of creatureState[id].mats) {
         m.uniforms.uFogColor.value.copy(_envColor);
         m.uniforms.uDim.value = creatureDim;
         m.uniforms.uSpot.value = controls.stageLight;
+        m.uniforms.uFogDensity.value = FOG_DENSITY * 0.55 * fogScale;
       }
     }
-    // section props share the creatures' "in the spotlight" dim curve — they
-    // stand centre-stage in the same lit-stage sections — plus their own
-    // brightness lift (their materials are much darker than the candy pets).
-    // Per-section override via prop.boost in choreography.js (not
-    // breakpoint-dependent, so reading the desktop STAGE table is fine).
-    for (const id of Object.keys(propState)) {
-      const boost = STAGE[id]?.prop?.boost ?? PROP_LIGHT_BOOST;
-      for (const m of propState[id].mats) {
-        m.uniforms.uFogColor.value.copy(_envColor);
-        m.uniforms.uDim.value = creatureDim * boost;
-        m.uniforms.uSpot.value = controls.stageLight;
+    // the orbs stand centre-stage alongside the creatures, so they share the
+    // creatures' "in the spotlight" dim curve rather than the environment's
+    for (const group of Object.values(orbGroups)) {
+      for (const o of group.orbs) {
+        o.mat.uniforms.uFogColor.value.copy(_envColor);
+        o.mat.uniforms.uDim.value = creatureDim;
+        o.mat.uniforms.uSpot.value = controls.stageLight;
+        o.mat.uniforms.uFogDensity.value = FOG_DENSITY * 0.55 * fogScale;
       }
     }
     hemi.intensity = BASE_LIGHT_INTENSITY.hemi * envDim;
@@ -1812,7 +2096,11 @@ export function createAquarium(container, opts = {}) {
     spotBeam.position.z = _spotAnchor.z;
     spotMat.uniforms.uTime.value = t;
     spotMat.uniforms.uInten.value = controls.stageLight * 1.9;
-    const otherShaftMul = 1 - controls.stageLight * 0.92;
+    // The window shafts hang at the shallow-water height, so once the camera is
+    // deep enough to see the pale bed they'd read as vertical banding across a
+    // frame whose light is now coming from BELOW. Pulled down (not off) with
+    // deepGlow so a little of the overhead wash survives.
+    const otherShaftMul = (1 - controls.stageLight * 0.92) * (1 - controls.deepGlow * 0.6);
     glowMat.uniforms.uInten.value = otherShaftMul;
 
     floorMat.uniforms.uTime.value = t;
@@ -1828,8 +2116,32 @@ export function createAquarium(container, opts = {}) {
 
     updateFish(t);
     updateCreatures(t, dt);
-    updateProps(t, dt);
+    updateBigTitle(dt);
+    updateOrbs(t, dt);
     updateBubbles(dt, t);
+
+    // ---- ripple trail ----
+    // `pointer` is NDC and already updated by the move handler (which tracks
+    // over DOM UI too — see onMove's early return, which only skips the bubble
+    // emission). A new sample is laid down every so many pixels of travel, so
+    // the trail's density is the same whether the cursor sweeps or crawls.
+    {
+      const g = glassMat.uniforms;
+      const target = rippleRectOn ? 1 : 0;
+      g.uRipOn.value += (target - g.uRipOn.value) * Math.min(1, dt * 5);
+      g.uRipTime.value = t;
+      if (rippleRectOn) {
+        const ux = pointer.x * 0.5 + 0.5;
+        const uy = pointer.y * 0.5 + 0.5; // shader-side uv: y already runs bottom-up
+        if (Math.hypot(ux - _lastRipple.x, uy - _lastRipple.y) > 0.012) {
+          _lastRipple.set(ux, uy);
+          rippleTrail[rippleWrite].set(ux, uy, t);
+          rippleWrite = (rippleWrite + 1) % RIPPLE_TRAIL;
+        }
+      } else if (g.uRipOn.value < 0.01) {
+        for (const s of rippleTrail) s.z = -1; // clear, so reopening starts calm
+      }
+    }
 
     // food flecks drift slowly down with lateral wobble
     const fp = foodGeo.attributes.position.array;
@@ -1906,13 +2218,13 @@ export function createAquarium(container, opts = {}) {
     window.removeEventListener('touchmove', onTouchMove);
     window.removeEventListener('mousedown', onMouseDown);
     window.removeEventListener('touchstart', onTouchStart);
-    window.removeEventListener('mousemove', onPropPointerTrack);
-    window.removeEventListener('mousedown', onPropMouseDown);
-    window.removeEventListener('touchstart', onPropTouchStart);
+    window.removeEventListener('mousemove', onScenePointerTrack);
+    window.removeEventListener('mousedown', onOrbMouseDown);
+    window.removeEventListener('touchstart', onOrbTouchStart);
+    if (orbCursorOn) document.body.style.cursor = '';
     canvas.removeEventListener('webglcontextlost', onContextLost);
     canvas.removeEventListener('webglcontextrestored', onContextRestored);
     document.removeEventListener('visibilitychange', onVisibility);
-    if (propCursorOn) document.body.style.cursor = '';
     const disposeTree = (root) =>
       root.traverse((o) => {
         if (o.geometry) o.geometry.dispose();
@@ -1944,8 +2256,24 @@ export function createAquarium(container, opts = {}) {
    *   anchors: object,    // live screen-px anchor above each creature's head (for DOM bubbles)
    *   whenReady: (cb: () => void) => void, // fires once fish + both creatures have loaded
    *   burstFromBottom: (total?: number, duration?: number) => void, // entry bubble wave
-   *   propClickHandlers: object, // section id -> cb(id); Section.jsx registers these to open its cloud on prop click
+   *   setOrbs: (group: 'work'|'social', list: {id,color}[]) => void,
+   *   setOrbOrder: (group: 'work'|'social', ids: string[]) => void,
+   *   setOrbClickHandler: (group: 'work'|'social', fn: ((id: string) => void) | null) => void,
+   *   setRippleRect: (rect: DOMRect | null) => void, // confine the cursor ripple to a panel
+   *   orbAnchors: object, // id -> live screen-px anchor of each orb (for DOM labels)
    * }}
    */
-  return { dispose, renderer, controls, anchors, whenReady, burstFromBottom, propClickHandlers };
+  return {
+    dispose,
+    renderer,
+    controls,
+    anchors,
+    whenReady,
+    burstFromBottom,
+    setOrbs,
+    setOrbOrder,
+    setOrbClickHandler,
+    setRippleRect,
+    orbAnchors,
+  };
 }

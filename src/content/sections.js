@@ -1,25 +1,30 @@
 /**
- * AQUARIA — section content (EDIT ME)
+ * CRÈCHE — section content (EDIT ME)
  * ------------------------------------------------------------------
- * This is the single place to author dialogue + content. The site is
- * built from this array, in order. Drop/replace text freely.
+ * This is the single place to author dialogue + copy. The site is built from
+ * this array, in order. Drop/replace text freely.
+ *
+ * v2 note: the site is FOUR sections — main / about / work / more. Individual
+ * project copy is NOT here any more; it lives in `public/creche-projects.json`
+ * and is loaded by `src/content/projects.js` (see REDESIGN_PLAN.md).
  *
  * Schema per section:
- *   id      : stable key, also the scroll anchor (#about, #flaneur …). Don't rename casually.
+ *   id      : stable key, also the scroll anchor (#about, #work …). Don't rename casually.
  *   title   : big section heading (Darker Grotesque). null = no heading.
+ *             `work` has none — the 3D in-scene title shows the SELECTED
+ *             PROJECT's name there instead.
  *   chat    : conversation bubbles, in REVEAL order (index 0 reveals first).
  *             Each: { who: 'axolotl' | 'octopus', text: '…' }
  *             - axolotl → pink bubble, anchored on the LEFT
  *             - octopus → red bubble,  anchored on the RIGHT
+ *             ('regulars' = a third voice with no bubble art — it just holds
+ *             its beat in the timeline.)
  *             Newest bubble sits lowest (by the animal's head); the stack grows upward.
  *             Text is IBM Plex Mono. Width is fixed; height grows to fit.
  *   content : optional cloud "thought bubble" (frosted glass). null = none.
  *             { heading: string|null (Darker Grotesque),
  *               body:    string      (Crimson Text, long-form; blank line = paragraph break),
  *               button:  { label: string, href?: string } | null  (IBM Plex Mono) }
- *
- * Placeholder bubbles in the mockups (empty pills) = dialogue you haven't written yet:
- * just add more { who, text } entries here and they'll appear.
  */
 
 export const SECTIONS = [
@@ -55,64 +60,36 @@ export const SECTIONS = [
 
   {
     id: 'about',
-    title: 'TL;DR',
+    title: 'About',
     chat: [
       { who: 'axolotl', text: 'So, what is CRÈCHE?' },
       { who: 'octopus', text: 'A tank. Two of us live in it — the octopus and the axolotl.' },
-      { who: 'axolotl', text: 'A new media studio. We make small weird things. The tank is real.' },
+      { who: 'axolotl', text: 'A creative tech/media studio. We make small weird things. The tank is real.' },
       { who: 'octopus', text: 'What do we make?' },
       { who: 'axolotl', text: 'Brands. Stories. The occasional creature you can poke in a browser.' }
-      // { who: 'axolotl', text: 'Knock on the glass.' },
     ],
     content: {
+      // `plain` = no frosted cloud around it. The title and this copy render as
+      // a left-aligned block in the left half of the frame, with the creatures
+      // and their chat pushed over to the right half (see .about-block).
+      plain: true,
       heading: null,
-      body: 'CRÈCHE is a new media studio. It makes small, weird things — interactive things, video things, story things.',
+      body: 'CRÈCHE is a creative tech/media studio. It makes small, weird things — interactive things, video things, story things.',
       button: null,
     },
   },
 
   {
-    id: 'cassette-jury',
-    title: 'Cassette Jury',
+    // The work section: every project at once, as a lineup of orbs on the
+    // right. No `content` cloud — a selected project opens its own panel
+    // (ProjectPanel) instead, fed from creche-projects.json.
+    id: 'work',
+    title: null,
     chat: [
-    
       { who: 'axolotl', text: 'Whenever we cannot decide on a thing...' },
       { who: 'octopus', text: 'We fight.' },
     ],
-    content: {
-      // heading: 'Cassette Jury',
-      body:
-        'Cassette Jury is a pocket jury for your creative decision-making. It is a panel of AI-simulated characters — each with their own job, taste, and agenda — who act as your on-demand jury when you hit a creative deadlock. Submit an open-ended question, watch them deliberate, get a verdict.\n\n' +
-        'It is not a serious research tool. It is a delightful, slightly absurd alternative to running user tests or polling colleagues when you have no time or budget to do so. The product sits at the intersection of creative tooling and playful entertainment.',
-      button: { label: 'Ask the Jury.', href: 'https://cassettejury.farm/' },
-    },
-  },
-
-  {
-    id: 'santa-beer',
-    title: 'Understory',
-    chat: [{ who: 'axolotl', text: 'I like mushrooms.' },
-      { who: 'octopus', text: 'No.' }
-    ],
-    content: {
-      // heading: 'Santa Beer',
-      body:
-        "Understory is an AI spec Ad about some things are worth the tradeoff. We made the tradeoff literal. A crooked cottage deep in a dark wood. An old alchemist has spent his life chasing clarity and hasn't found it. A hooded merchant arrives from the trees with a wooden case that opens into a brass balance scale. On one pan, a vial of dark mushroom powder. Then he reaches toward the old man's lips and draws out a thread of golden light — his sense of taste — and sets it on the other pan.\n\n",
-      button: { label: 'Trade Off', href: 'https://www.instagram.com/p/DbcQZxZsRnX/' },
-    },
-  },
-
-  {
-    id: 'flaneur',
-    title: 'Flâneur',
-    chat: [{ who: 'octopus', text: 'What is this?' },
-      { who: 'axolotl', text: 'I hope I can leave water one day.' }],
-    content: {
-      // heading: 'Flâneur',
-      body:
-        'Flâneur is an iOS app that plays music as your walk through the city. You walk, it notices the neighborhood,  and plays music matched to that places cultural and atmospheric identity. Every neighborhood has a sound, which we measure across four things: History, Atmosphere, People, and Time. Each neighborhood has a "sound identity", combined into a seed pool, then filtered through your own listening history.  \n\n The city writes its own poem in music.',
-      button: { label: 'Take a walk', href: 'https://flaneur-neon.vercel.app/' },
-    },
+    content: null,
   },
 
   {
@@ -132,8 +109,6 @@ export const WORDMARK = 'CRECHE';
 /** Sidebar menu — label + the section id it scrolls to. */
 export const MENU = [
   { label: 'About', target: 'about' },
-  { label: 'Cassette Jury', target: 'cassette-jury' },
-  { label: 'Understory', target: 'santa-beer' },
-  { label: 'Flâneur', target: 'flaneur' },
+  { label: 'Work', target: 'work' },
   { label: 'More', target: 'more' },
 ];

@@ -1,0 +1,342 @@
+{
+  "$schema": "./projects.schema.md",
+  "studio": "CRÈCHE",
+  "updated": "2026-08-14",
+  "tagVocabulary": {
+    "type": [
+      "Video",
+      "Interactive",
+      "3D"
+    ],
+    "display": "open set — platform, material, status. 3–5 per project."
+  },
+  "projects": [
+    {
+      "id": "flaneur",
+      "title": "Flâneur",
+      "status": "live",
+      "year": null,
+      "tagline": "The city writes its poems in music.",
+      "oneLiner": "A music app that plays the song that belongs to the street you're standing on.",
+      "summary": "An iOS app that ties the city to what you're hearing. As you move, it reads the neighborhood you're in and plays music rooted in that place's culture and mood — not a shuffle, the sound of where you're standing. Three sources score every block: what it was, what it feels like, who's here now. A fourth, the hour, runs underneath without asking.",
+      "tags": {
+        "type": [
+          "Interactive"
+        ],
+        "display": [
+          "iOS",
+          "Sound",
+          "Location",
+          "Live"
+        ]
+      },
+      "cta": "Take a walk",
+      "links": {
+        "site": "https://www.flaneur.live/",
+        "deck": "https://www.flaneur.live/deck.html",
+        "waitlist": "https://form.typeform.com/to/YPVuTvFh"
+      },
+      "sections": {
+        "concept": [
+          "Brooklyn Bridge into Chinatown, In the Mood for Love in the headphones. For a few minutes the city stopped being a place and became a film.",
+          "A flâneur is the one who wanders the city not to arrive but to feel it — the stroller, the watcher, the one who reads the street like a page. This is an app for that kind of walking. It gives it a soundtrack, and takes the choosing away from you.",
+          "The question underneath: we listen by artist, by album, by playlist. What happens if you listen by place, and hold the three layers of the algorithm in your hand."
+        ],
+        "design": [
+          "Hardware-skeuomorphic. A warm-grey control device in the Dieter Rams lineage floating over a vintage paper map — #E9E1D0, ink-grey streets, drawn rather than rendered. Green phosphor LCD, one orange accent (#E8511E) held for the play state, the you-are-here mark, and the switch nubs. Nothing else gets color.",
+          "Two typefaces, two speakers: SF Mono is the machine talking, Crimson Text italic is the city talking — neighborhood names, map labels, the crossing.",
+          "The panel is persistent and never dismissible. Knob, fader, three layer switches, a recessed waveform that moves green → amber → orange with amplitude. The switches are custom, not system toggles — springy, physical, made to be felt.",
+          "Boundaries stay invisible in normal use. They appear only in the second you cross one: a single soft haptic pulse, the neighborhood name fading up and out over 3.2 seconds, the color turning, then gone."
+        ],
+        "technical": [
+          "Swift / SwiftUI, iOS v1. Last.fm draws the graph; Spotify only plays.",
+          "GPS resolves to a neighborhood polygon, and gaps snap to the nearest one — there is always an answer. Each neighborhood carries 8–10 anchor seeds, mood tags, and a POI profile. History runs track.getSimilar on the seeds, returning songs like the seeds rather than the seeds themselves. Atmosphere and People both run tag.getTopTracks, one on the mood tags, one on moods inferred from what's actually on the block — galleries read as refined. Time biases the mood by hour: nocturnal at night, warm in daylight. The weighted pool resolves to text, then to a Spotify URI, then to the queue, played through App Remote.",
+          "The three switches on screen are those three sources. Turn one off and the rest renormalize — 50/50 without People.",
+          "Nine Manhattan neighborhoods were hand-curated for v1. Identities are now written on first visit and cached, which is why the map stopped being a New York map: adding a city is adding its neighborhoods. San Francisco, South Bay, London, Pittsburgh, Tokyo.",
+          "Location is tracked continuously; the acknowledgment is deferred to the end of the track or a skip. That deferral is the architecture, not a feature."
+        ],
+        "whyItMatters": [
+          "There is prior research on emotion-congruence between music and place — Kaminskas & Ricci, UMAP 2011; the emotion-based place-matching work from 2016. The idea was findable. What wasn't findable was an app willing to give up its own interruptions to run it.",
+          "Most location-aware software wants you to arrive. This one has no destination and no notification. The single rule — music leads, geography follows — costs it every engagement mechanic it could have had."
+        ]
+      },
+      "stack": [
+        "Swift",
+        "SwiftUI",
+        "Last.fm API",
+        "Spotify App Remote",
+        "Google Places"
+      ],
+      "awards": null,
+      "credits": "dev by Mia"
+    },
+    {
+      "id": "cassette-jury",
+      "title": "Cassette Jury",
+      "status": "live",
+      "year": 2026,
+      "tagline": "A pocket jury for creative deadlocks.",
+      "oneLiner": "An AI pocket jury for your creative deadlocks.",
+      "summary": "A web toy for the moment you're stuck. Sixteen simulated characters, each with a profession, a taste, and an agenda, live in a wooden box. Submit an open-ended creative question, watch them fight about it — physically, as gooey 3D blobs — and get a verdict with the vote split. Hover any blob to hear why it voted that way, in its own voice. Not a replacement for user research.",
+      "tags": {
+        "type": [
+          "Interactive",
+          "3D"
+        ],
+        "display": [
+          "Web",
+          "WebGL",
+          "AI",
+          "Live"
+        ]
+      },
+      "cta": "Talk with the Jury",
+      "links": {
+        "site": "https://cassettejury.farm/",
+        "writeup": "https://cassettejury.farm/writeup"
+      },
+      "sections": {
+        "concept": [
+          "You're mid-project and stuck between two lines, two flows, two pairs of trousers. What you need isn't another model agreeing with you. It's a small room of people who will push back.",
+          "The name is the form factor. A focus group compressed into something you can carry — like a cassette."
+        ],
+        "design": [
+          "No tutorial, no onboarding. The wooden box, the blob bodies, the fight animation say what to do before a word is read. Each juror has a physical presence built from their personality, so the room reads as a room before anyone speaks.",
+          "The cast is spread deliberately across profession, worldview, age, and register — a 22-year-old content strategist in LA, a third-generation plumber in Pittsburgh, an emeritus design historian in Kyoto — so most questions split rather than converge. A monoculture would return a verdict that agrees with itself.",
+          "The verdict is one line. The reasoning stays hidden until you go looking for it."
+        ],
+        "technical": [
+          "Next.js and Three.js. Claude runs the verdict engine under a strict JSON contract: per-juror stance, reasoning, and one quotable line, plus a summary, a synthesis sentence, and a numeric vote count per side. Each character carries a voiceProfile field holding their behavioral instructions, so a juror can be rewritten or swapped without touching prompt logic.",
+          "The same character data builds the body. A second Claude pass turns a rough draft into a canonical profile, including a natural-language silhouette field; that field feeds Gemini, which returns two mood variants in a claymation style held by prompt anchoring alone — no post-processing, no LoRA, no fine-tuning. The selected image goes to Tripo for image-to-3D, producing a textured GLB that loads straight into the scene.",
+          "Rendering runs through a custom useThreeJsScene hook that keeps the WebGL lifecycle out of the component tree. GLBs load via GLTFLoader, cached against repeat requests, cel-shaded with MeshToonMaterial, morph targets preserved for blendshape facial animation.",
+          "The fight is a hand-written Euler integration loop at ~60fps. Each blob is pulled toward a random target with force capped at 25 units, collisions fire elastic push-apart, walls reflect velocity. Gravity is off during the fight so nothing lands. Camera shake is a sinusoidal oscillator with drifting frequency. Particles come from a pre-allocated pool of 200 billboard quads running two emitters at once — ambient smoke, one per blob every six frames, and impact bursts of two to three at near-collision midpoints, each with its own lifetime and fade curve, billboarded per frame."
+        ],
+        "whyItMatters": [
+          "It sits in the gap between needing feedback and having the time or budget to get it. Thirty seconds between an idea and a decision, when what you want is a perspective that isn't yours.",
+          "All of it — the simulation, the character pipeline, the physics — exists to make that thirty seconds feel like it happened. The blobs fight because disagreement is physical. The verdict is one line because that's all anyone reads. The characters are difficult because agreeable feedback is worth nothing."
+        ]
+      },
+      "stack": [
+        "Next.js",
+        "Three.js",
+        "Claude API",
+        "Gemini",
+        "Tripo AI"
+      ],
+      "awards": null,
+      "credits": "Built by Mia & Ingrid, 2026.",
+      "notes": "Character count inconsistent across sources: write-up says 16, page meta says nine, brand guidelines say 11. Currently written as 16.",
+      "submissions": [
+        "Awwwards — Nominee"
+      ]
+    },
+    {
+      "id": "santa-beer",
+      "title": "Santa Beer",
+      "status": "live",
+      "year": 2026,
+      "tagline": "Real Taste, No Acting Required.",
+      "oneLiner": "A spec holiday beer ad hidden inside a joke hidden inside an ad.",
+      "summary": "A spec commercial for a holiday beer, made in a week on a full AI pipeline. Beer sits at the center of celebration and also carries the seasonal guilt of indulgence — something to earn, or burn off. Instead of avoiding that, we reversed it. The reveal drops out of the fantasy and into a parking lot, where two exhausted actors are still in costume, sharing a beer.",
+      "tags": {
+        "type": [
+          "Video"
+        ],
+        "display": [
+          "Advertising",
+          "AI",
+          "Spec",
+          "Clay"
+        ]
+      },
+      "cta": "Drink Beer",
+      "links": {
+        "caseStudy": "https://miazhang2025.github.io/santabeer/",
+        "video": "https://youtu.be/vMvDhbIHli0"
+      },
+      "sections": {
+        "concept": [
+          "Weight-loss advertising has a convention nobody questions: the before and the after are played by two different people. The transformation is a casting decision.",
+          "So the ad casts it that way on purpose. A holiday impersonation story maps straight onto a fake transformation — one figure standing in for another, the swap doing the work the product claims to do.",
+          "Then the frame drops. Two actors in a parking lot, out of character, still in costume, drinking. The beer stops being about discipline or image and goes back to what people actually like about it."
+        ],
+        "design": [
+          "Clay stop-motion, chosen before the budget was. The style is handmade and warm, which is what keeps the satire from going cold — the irony sits inside something soft rather than something slick. The source world it borrows from is stop-motion already, so nothing had to be invented; the aesthetic was moved into rather than built.",
+          "Character references were locked at the start. Everything downstream depends on that lock holding."
+        ],
+        "technical": [
+          "One week, five stages. Concept and storyboard in TapNow — shot composition and camera logic settled before a single frame was generated, which is what prevented the expensive detours later. Style lock and character design in ComfyUI and Nano Banana. Shot descriptions, dialogue, and the tagline through Claude and Gemini. Video generated keyframe-first: stills in Nano Banana, refined into intermediate frames, then handed to Kling and Runway Gen-4 as anchors — far more character continuity than prompting video cold. Voices and ambient audio in ElevenLabs, written against a rough cut that already existed. Assembly and final polish in Premiere Pro.",
+          "One shot refused to come out. The cross-section of Santa wedged in the chimney — the visual anchor of the whole premise — failed across every prompt combination: wrong angle, wrong proportions, none of the black comedy. It was solved by hand: a precise reference illustration built in Photoshop, correct geometry and proportions drawn manually, then used as the generation anchor. It became one of the most distinctive frames in the piece."
+        ],
+        "whyItMatters": [
+          "When Coca-Cola remade its 1995 Christmas ad with AI in 2025, the backlash was immediate. The problem wasn't the tool. It was that nothing was underneath it — generated imagery snapped to a familiar jingle, no story to serve.",
+          "Stop-motion is one of advertising's most expensive looks and is usually cut before the conversation starts. Here it wasn't a compromise, it was the right answer, and the pipeline is the only reason it was reachable on a spec budget. The tools didn't make this cheaper. They made the correct choice available."
+        ]
+      },
+      "stack": [
+        "TapNow",
+        "ComfyUI",
+        "Nano Banana",
+        "Claude",
+        "Gemini",
+        "Kling",
+        "Runway Gen-4",
+        "ElevenLabs",
+        "Photoshop",
+        "Premiere Pro"
+      ],
+      "awards": null,
+      "submissions": [
+        "Runway AI Film Festival 2026 — Advertising (submitted)"
+      ],
+      "credits": "Mia & Ingrid",
+      "notes": "Case study signs off as 'Tumbled Raven: Mia & Ingrid'; Tumbled Raven is also the fictional beer brand. Attribution on the placard still undecided. Case study names Nightmare Before Christmas characters — placard copy deliberately describes the mechanism without naming the IP."
+    },
+    {
+      "id": "eureka",
+      "title": "Eureka",
+      "status": "live",
+      "year": 2026,
+      "tagline": "Great Ideas Shouldn't Dissolve in Water.",
+      "oneLiner": "A spec ad for a waterproof notepad, set in the original idea-in-the-bath.",
+      "summary": "A spec ad for a waterproof notepad, generated end to end in Runway. Inspiration tends to arrive at the wettest possible moment — the shower, the rain, the bath. The film takes that literally and goes back to the first one.",
+      "tags": {
+        "type": [
+          "Video"
+        ],
+        "display": [
+          "Advertising",
+          "AI",
+          "Spec",
+          "Runway"
+        ]
+      },
+      "cta": null,
+      "links": {
+        "portfolio": "https://www.cabbageblame.me/#/work/eureka",
+        "video": "https://youtu.be/XY1_4CBKkqU"
+      },
+      "brief": {
+        "product": "Eureka Waterproof Notepad",
+        "insight": "Your best ideas can happen at the worst times: in the shower, while washing dishes, getting caught in the rain.",
+        "competition": "Runway — Another Big Ad Contest Vol. II",
+        "format": "15–30s spec ad",
+        "constraints": [
+          "All generative video created inside Runway",
+          "Visible Runway watermark on final film",
+          "Must answer the assigned brief and use the supplied product image and logo"
+        ],
+        "deadline": "2026-07-31"
+      },
+      "sections": {
+        "concept": [
+          "Archimedes, mid-argument with the king's gold-crown problem, steps into the bath. The water overflows and the idea arrives in the same instant. He leaps out shouting the word that becomes the product's name.",
+          "The loop closes on itself: the brand name is the moment of insight, already encoded in the product before anyone wrote a brief for it."
+        ],
+        "design": [
+          "Warm and gilded — crown, wooden basin, stone bathhouse walls — pitched to the notepad's yellow. The palette holds the tension the whole ad runs on: the wettest moment and the clearest one are the same moment."
+        ],
+        "technical": [
+          "Every frame generated inside Runway, per contest rules. 15–30 seconds."
+        ],
+        "whyItMatters": []
+      },
+      "stack": [
+        "Runway"
+      ],
+      "awards": null,
+      "submissions": [
+        "Runway — Another Big Ad Contest Vol. II"
+      ],
+      "credits": null,
+      "notes": "Portfolio page groups this with Understory (and a third, unnamed film) under one 'Eureka!' entry titled 'Three 15–30 second ads'. Kept separate here per the project list. Third film unidentified. Credits unconfirmed."
+    },
+    {
+      "id": "understory",
+      "title": "Understory",
+      "status": "live",
+      "year": 2026,
+      "tagline": "Tastes horrible. Brings clarity.",
+      "oneLiner": "A claymation spec ad for mushroom powder, sold as a trade: taste for clarity.",
+      "summary": "A 30-second gothic claymation spec ad for a mushroom powder, generated end to end in Runway. A hooded merchant arrives with a brass scale and sets the powder against the protagonist's sense of taste. It's a trade, and it's entered into knowingly.",
+      "tags": {
+        "type": [
+          "Video"
+        ],
+        "display": [
+          "Advertising",
+          "AI",
+          "Spec",
+          "Runway"
+        ]
+      },
+      "cta": null,
+      "links": {
+        "portfolio": "https://www.cabbageblame.me/#/work/understory",
+        "video": "https://youtu.be/tqsF16QicYg"
+      },
+      "brief": {
+        "product": "Understory Mushroom Powder",
+        "insight": "Some things are worth the tradeoff. This tastes horrible but it brings clarity.",
+        "competition": "Runway — Another Big Ad Contest Vol. II",
+        "format": "30s spec ad",
+        "constraints": [
+          "All generative video created inside Runway",
+          "Visible Runway watermark on final film",
+          "Must answer the assigned brief and use the supplied product image and logo"
+        ],
+        "deadline": "2026-07-31"
+      },
+      "sections": {
+        "concept": [
+          "The brief said some things are worth the tradeoff. So the ad makes the tradeoff a transaction with a stranger, on a scale, in front of you. Nobody is fooled and nobody is forced. The powder goes down anyway, and the room — and the person in it — snaps into focus."
+        ],
+        "design": [
+          "The engine is an exemption layer. Everything in the world moves in staccato 12fps stop-motion except three things: golden mist, falling dust, and the product. Those move fluidly. The product is the only thing in frame behaving like it's actually magic, and nobody has to say so.",
+          "Color runs the arc underneath. The merchant's hood is the dark green of the tin. The gold mist is the film's one saturated note. The ending resolves to a cold, clear white."
+        ],
+        "technical": [
+          "Every frame generated inside Runway, per contest rules. 30 seconds."
+        ],
+        "whyItMatters": []
+      },
+      "stack": [
+        "Runway"
+      ],
+      "awards": null,
+      "submissions": [
+        "Runway — Another Big Ad Contest Vol. II"
+      ],
+      "credits": null,
+      "notes": "Part of the same three-film Runway contest set as Eureka. Credits unconfirmed."
+    },
+    {
+      "id": "ep0ch-art",
+      "title": "Ep0ch.art",
+      "status": "wip",
+      "year": null,
+      "tagline": null,
+      "oneLiner": "An archive of deprecated AI image models — what they made before they stopped running.",
+      "summary": null,
+      "tags": {
+        "type": [
+          "Interactive"
+        ],
+        "display": [
+          "WIP"
+        ]
+      },
+      "cta": null,
+      "links": {},
+      "sections": {
+        "concept": [],
+        "design": [],
+        "technical": [],
+        "whyItMatters": []
+      },
+      "stack": [],
+      "awards": null,
+      "credits": null
+    }
+  ]
+}

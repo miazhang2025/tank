@@ -1,15 +1,12 @@
-import { memo, useEffect, useRef, useState } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import gsap from 'gsap';
 import ContentCloud from './ContentCloud.jsx';
+import Work from './Work.jsx';
+import SocialOrbs from './SocialOrbs.jsx';
 
 const REDUCE =
   typeof window !== 'undefined' &&
   window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-// Sections whose content cloud is replaced by a clickable 3D prop model (see
-// createAquarium's prop block): the cloud starts CLOSED on every entry and
-// only opens when the model is clicked; clicking anywhere outside closes it.
-const PROP_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
 
 /**
  * One section's DOM content. Two layouts:
@@ -38,7 +35,7 @@ const PROP_SECTIONS = new Set(['cassette-jury', 'santa-beer', 'flaneur']);
  * @param {{current:number}} props.progressRef  continuous fractional section index
  * @param {boolean} props.active  scrolling/reveal enabled (true once the intro settles)
  */
-function Section({ scene, index, isActive, near, data, mobile, progressRef, active }) {
+function Section({ scene, index, isActive, near, data, mobile, progressRef, active, catalog }) {
   const rootRef = useRef(null);
   const axRef = useRef(null);
   const ocRef = useRef(null);
@@ -63,43 +60,13 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
   }, [isActive]);
 
   const chat = data.chat || [];
-  const hasCloud = !!data.content;
-  // 'about' reads as chat-only on mobile — its content cloud is skipped there
-  // and the conversation bubbles take its place.
-  const cloudOnMobile = hasCloud && data.id !== 'about';
+  // `content.plain` renders the copy as a bare left-aligned block (title +
+  // paragraphs, no frosted cloud around it) — see .about-block in index.css.
+  const plainCopy = !!(data.content && data.content.plain);
+  const hasCloud = !!data.content && !plainCopy;
   const desktopChat = !mobile;
-  const mobileChat = mobile && (!hasCloud || data.id === 'about');
-  const showCloud = hasCloud && (desktopChat || cloudOnMobile);
-  const isPropSection = PROP_SECTIONS.has(data.id);
-  const [cloudOpen, setCloudOpen] = useState(false);
-
-  // clicking the section's 3D prop opens the cloud — the scene raycasts the
-  // model on mousedown/touchstart and fires the callback registered here
-  useEffect(() => {
-    if (!scene || !isPropSection || !scene.propClickHandlers) return undefined;
-    scene.propClickHandlers[data.id] = () => setCloudOpen(true);
-    return () => {
-      delete scene.propClickHandlers[data.id];
-    };
-  }, [scene, isPropSection, data.id]);
-
-  // clicking anywhere outside the open cloud closes it. The pointerdown that
-  // OPENED it can't immediately close it: this listener only attaches on the
-  // render after cloudOpen flips, once that event is long finished.
-  useEffect(() => {
-    if (!cloudOpen) return undefined;
-    const onDown = (e) => {
-      if (e.target && e.target.closest && e.target.closest('.content-cloud')) return;
-      setCloudOpen(false);
-    };
-    document.addEventListener('pointerdown', onDown);
-    return () => document.removeEventListener('pointerdown', onDown);
-  }, [cloudOpen]);
-
-  // every (re)entry into the section starts with the cloud closed
-  useEffect(() => {
-    if (!isActive) setCloudOpen(false);
-  }, [isActive]);
+  const mobileChat = mobile && !hasCloud;
+  const showCloud = hasCloud;
 
   // unified loop while near-active: follow the creatures (desktop) + reveal
   // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
@@ -394,13 +361,28 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
 
   return (
     <div ref={rootRef} className="section-content">
-      {/* prop sections get a 3D in-scene title instead (createAquarium's
-          buildPropTitles) so the model can genuinely occlude the text —
-          rendering the DOM one too would double it up */}
-      {data.title && !isPropSection && (
+      {/* `main` and `work` have no DOM title: main's is rendered INSIDE the
+          scene so the creatures swim in front of it, and work shows the
+          selected project's name on its orb labels instead.
+          A `plain` section puts its title inside the copy block below, so the
+          two stay one left-aligned unit. */}
+      {data.title && !plainCopy && (
         <h2 className="section-title" ref={titleRef} style={{ opacity: 0 }}>
           {data.title}
         </h2>
+      )}
+
+      {plainCopy && (
+        <div className="about-block">
+          <div className="about-inner" ref={titleRef} style={{ opacity: 0 }}>
+            {data.title && <h2 className="about-title">{data.title}</h2>}
+            {(data.content.body || '').split('\n\n').map((p, i) => (
+              <p className="about-copy" key={i}>
+                {p}
+              </p>
+            ))}
+          </div>
+        </div>
       )}
       {desktopChat && axolotl.length > 0 && (
         <div className="cstack left" ref={axRef} style={{ opacity: 0 }}>
@@ -453,14 +435,13 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
         </div>
       )}
 
-      {showCloud && (
-        <ContentCloud
-          content={data.content}
-          active={isPropSection ? isActive && cloudOpen : isActive}
-          id={data.id}
-          interactive={!isPropSection || cloudOpen}
-        />
+      {showCloud && <ContentCloud content={data.content} active={isActive} />}
+
+      {data.id === 'work' && catalog && (
+        <Work scene={scene} catalog={catalog} isActive={isActive} mobile={mobile} />
       )}
+
+      {data.id === 'more' && <SocialOrbs scene={scene} isActive={isActive} />}
     </div>
   );
 }

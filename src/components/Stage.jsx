@@ -54,10 +54,11 @@ const hexToRgb01 = (hex) => {
  * creature screen anchors on the live scene and (b) cross-fade the section
  * layers. Phase 4 fills each `.section-layer` with bubbles/clouds.
  *
- * @param {object}  props.scene   live scene instance ({ controls, … })
- * @param {boolean} props.active  enable scrolling (true once the intro settles)
+ * @param {object}  props.scene    live scene instance ({ controls, … })
+ * @param {boolean} props.active   enable scrolling (true once the intro settles)
+ * @param {object}  props.catalog  { projects, categories } from creche-projects.json
  */
-export default function Stage({ scene, active }) {
+export default function Stage({ scene, active, catalog }) {
   const spacerRef = useRef(null);
   const layerRefs = useRef([]);
   const lenisRef = useRef(null);
@@ -100,13 +101,14 @@ export default function Stage({ scene, active }) {
     gsap.ticker.add(tickerFn);
     gsap.ticker.lagSmoothing(0);
 
-    // Each crossing between about↔cassette-jury↔santa-beer↔flaneur plays as a
-    // fixed-duration cinematic dive (camera sinks straight down) instead of
-    // the usual scroll-scrubbed lerp below, so it always reads as the same
-    // drop regardless of scroll speed. diveTween owns camY/creature sx,sy
-    // (+ the stage-light/env-colour mood) while it runs; applyVisual skips
-    // those fields until it completes. flaneur↔more is NOT one of these — it's
-    // a normal scroll-scrubbed rise back to the surface.
+    // Each crossing between about↔work↔more plays as a fixed-duration
+    // cinematic dive (camera sinks straight down) instead of the usual
+    // scroll-scrubbed lerp below, so it always reads as the same drop
+    // regardless of scroll speed. diveTween owns camY/creature sx,sy (+ the
+    // stage-light/env-colour/deep-glow mood) while it runs; applyVisual skips
+    // those fields until it completes. The descent never reverses: `more` is
+    // deeper than `work`, it just gets brighter down there (see choreography's
+    // deepGlow).
     //
     // The camera leads: it starts sinking immediately and runs the full
     // duration, while the creatures hold their current screen anchor (they're
@@ -117,12 +119,10 @@ export default function Stage({ scene, active }) {
     const DIVE_DURATION = 1.6;
     const DIVE_CHARACTER_DELAY = 0.6;
     const DIVE_PAIRS = new Set([
-      'about|cassette-jury',
-      'cassette-jury|about',
-      'cassette-jury|santa-beer',
-      'santa-beer|cassette-jury',
-      'santa-beer|flaneur',
-      'flaneur|santa-beer',
+      'about|work',
+      'work|about',
+      'work|more',
+      'more|work',
     ]);
     // This used to guard against real flicker: free wheel scrolling plus an
     // overshooting snap could cross a boundary back and forth several times,
@@ -200,7 +200,17 @@ export default function Stage({ scene, active }) {
           setActiveIndex(toIdx);
         },
       });
-      diveTween.to(c, { cameraZ: target.cameraZ, camY: target.camY ?? 0, duration: DIVE_DURATION, ease: 'power2.inOut' }, 0);
+      diveTween.to(
+        c,
+        {
+          cameraZ: target.cameraZ,
+          camY: target.camY ?? 0,
+          camFollow: target.camFollow ?? 0.72,
+          duration: DIVE_DURATION,
+          ease: 'power2.inOut',
+        },
+        0,
+      );
       const creatureDuration = DIVE_DURATION - DIVE_CHARACTER_DELAY;
       diveTween.to(
         c.creatures.axolotl,
@@ -215,7 +225,15 @@ export default function Stage({ scene, active }) {
       const [tr, tg, tb] = hexToRgb01(target.envColor ?? DEFAULT_ENV);
       diveTween.to(
         c,
-        { envR: tr, envG: tg, envB: tb, stageLight: target.stageLight ?? 0, duration: DIVE_DURATION, ease: 'power2.inOut' },
+        {
+          envR: tr,
+          envG: tg,
+          envB: tb,
+          stageLight: target.stageLight ?? 0,
+          deepGlow: target.deepGlow ?? 0,
+          duration: DIVE_DURATION,
+          ease: 'power2.inOut',
+        },
         0,
       );
     };
@@ -258,15 +276,21 @@ export default function Stage({ scene, active }) {
       const c = scene.controls;
       const ai = Math.round(P);
       c.activeSection = STAGE_ORDER[ai];
-      // the section prop model's screen anchor (breakpoint-aware, so it comes
-      // from here rather than the scene reading STAGE directly) — null for
-      // sections without a prop; createAquarium's updateProps consumes it
-      c.propAnchor = stage[STAGE_ORDER[ai]].prop || null;
+      // the project lineup's screen anchor + arc shape (breakpoint-aware, so it
+      // comes from here rather than the scene reading STAGE directly) — null
+      // for every section but `work`; createAquarium's orb rig consumes it
+      c.lineupAnchor = stage[STAGE_ORDER[ai]].lineup || null;
+      // same deal for `more`'s social-link cluster and `main`'s in-scene title
+      c.socialAnchor = stage[STAGE_ORDER[ai]].social || null;
+      c.bigTitle = stage[STAGE_ORDER[ai]].bigTitle || null;
 
       // publish the snapped section index (drives bubble reveal) without
       // re-rendering on every scroll frame
       if (ai !== activeRef.current) {
         const fromIdx = activeRef.current;
+        // direction of travel into the new section — `work` reads it to decide
+        // which end of its project list to land on
+        c.sectionDir = ai > fromIdx ? 1 : -1;
         const fromId = STAGE_ORDER[fromIdx];
         const toId = STAGE_ORDER[ai];
         const toIdx = ai;
@@ -343,6 +367,7 @@ export default function Stage({ scene, active }) {
       if (!diveActive) {
         c.cameraZ = lerp(a.cameraZ, b.cameraZ, f);
         c.camY = lerp(a.camY ?? 0, b.camY ?? 0, f);
+        c.camFollow = lerp(a.camFollow ?? 0.72, b.camFollow ?? 0.72, f);
         c.creatures.axolotl.sx = lerp(a.axolotl.sx, b.axolotl.sx, f);
         c.creatures.axolotl.sy = lerp(a.axolotl.sy, b.axolotl.sy, f);
         c.creatures.octopus.sx = lerp(a.octopus.sx, b.octopus.sx, f);
@@ -353,6 +378,7 @@ export default function Stage({ scene, active }) {
         c.envG = lerp(ag, bg, f);
         c.envB = lerp(ab, bb, f);
         c.stageLight = lerp(a.stageLight ?? 0, b.stageLight ?? 0, f);
+        c.deepGlow = lerp(a.deepGlow ?? 0, b.deepGlow ?? 0, f);
       }
 
       // cross-fade each layer by its distance from the current section index.
@@ -435,6 +461,19 @@ export default function Stage({ scene, active }) {
       });
     };
 
+    // `work` holds the gesture until its lineup is exhausted: inside that
+    // section a flick steps to the next/previous project, and only a flick made
+    // at the end of the list falls through to the section move. The work UI
+    // registers the stepper (scene.workNav) and answers whether it consumed the
+    // gesture, so all the list logic stays where the list state lives.
+    const stepSection = (dir) => {
+      if (!canScrollRef.current) return;
+      if (STAGE_ORDER[activeRef.current] === 'work' && scene.workNav && !navLock) {
+        if (scene.workNav.step(dir)) return;
+      }
+      goToSection(activeRef.current + dir);
+    };
+
     // Kept enabled even before the intro settles: preventDefault is what stops
     // a stray wheel from native-scrolling the page, and the handlers no-op via
     // canScrollRef until the camera drop finishes.
@@ -444,9 +483,9 @@ export default function Stage({ scene, active }) {
       wheelSpeed: -1, // so onUp means "scrolled down" — GSAP's own section-snap convention
       tolerance: 10,
       preventDefault: true,
-      allowClicks: true, // the 3D props and cloud CTAs still need their clicks
-      onUp: () => goToSection(activeRef.current + 1),
-      onDown: () => goToSection(activeRef.current - 1),
+      allowClicks: true, // the orbs and the panel's CTA still need their clicks
+      onUp: () => stepSection(1),
+      onDown: () => stepSection(-1),
     });
 
     applySection(0);
@@ -461,6 +500,21 @@ export default function Stage({ scene, active }) {
         if (!disposed) ScrollTrigger.refresh();
       });
     }
+
+    // Hands the page's scroll over to a piece of UI (the open case study).
+    // Killing the Observer rather than just ignoring its callbacks is the point:
+    // it holds preventDefault on the wheel, so while it lives nothing inside the
+    // panel can scroll natively. Lenis is stopped alongside it so the page
+    // itself can't drift while the panel has the wheel.
+    scene.setScrollLock = (locked) => {
+      if (locked) {
+        observer.disable();
+        lenis.stop();
+      } else {
+        observer.enable();
+        if (canScrollRef.current) lenis.start();
+      }
+    };
 
     // sidebar navigation hook — same single continuous move as a gesture, just
     // stretched a little for multi-section jumps so a leap across the whole
@@ -486,8 +540,20 @@ export default function Stage({ scene, active }) {
       lenis.destroy();
       lenisRef.current = null;
       delete scene.scrollToSection;
+      delete scene.setScrollLock;
     };
   }, [scene]);
+
+  // `more` descends into a PALE environment (see choreography's deepGlow), and
+  // the fixed DOM chrome — wordmark, corner text — is authored light-on-dark.
+  // Mirror the mood onto the body so those few elements can flip to dark ink
+  // there (CSS transitions the change so it rides the camera dive rather than
+  // snapping at the section boundary).
+  useEffect(() => {
+    const bright = (STAGE[STAGE_ORDER[activeIndex]]?.deepGlow ?? 0) > 0.5;
+    document.body.classList.toggle('bright-stage', bright);
+    return () => document.body.classList.remove('bright-stage');
+  }, [activeIndex]);
 
   // hold / release scrolling with the intro. The Observer stays alive either
   // way (it has to keep eating stray wheel events); canScrollRef is what gates
@@ -528,6 +594,7 @@ export default function Stage({ scene, active }) {
               mobile={mobile}
               progressRef={progressRef}
               active={active}
+              catalog={catalog}
             />
           </div>
         ))}

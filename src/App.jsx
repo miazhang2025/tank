@@ -4,12 +4,28 @@ import Aquarium from './components/Aquarium.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Stage from './components/Stage.jsx';
 import Loader from './components/Loader.jsx';
+import { loadProjects } from './content/projects.js';
 
 export default function App() {
   const [scene, setScene] = useState(null);
   const [ready, setReady] = useState(false);
   const [entered, setEntered] = useState(false); // visitor clicked "Enter" on the loader
   const [active, setActive] = useState(false); // scrolling enabled once the intro settles
+  // work-section data (public/creche-projects.json). Fetched alongside the GLBs
+  // rather than bundled, so the file stays editable without a rebuild.
+  const [catalog, setCatalog] = useState({ projects: [], categories: ['All'] });
+
+  useEffect(() => {
+    let cancelled = false;
+    loadProjects()
+      .then((c) => {
+        if (!cancelled) setCatalog(c);
+      })
+      .catch((err) => console.error('projects load failed', err));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // flip to ready once the scene's models have loaded
   useEffect(() => {
@@ -34,11 +50,11 @@ export default function App() {
   return (
     <>
       <Aquarium onReady={setScene} />
-      <Stage scene={scene} active={active} />
+      <Stage scene={scene} active={active} catalog={catalog} />
 
       <div className="ui">
         <div className="t">CRÈCHE / the tank</div>
-        <div className="h">We currently do not have an address yet, you can contact Mia at miazhang2025@gmail.com she can help us.</div>
+        <div className="h">Knock on the glass · knockonglass@crechetank.com</div>
       </div>
 
       <Sidebar scene={scene} />

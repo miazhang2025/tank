@@ -9,10 +9,10 @@
   font-display: swap;
   /* This build of Quedami is a demo: every Latin-1 accented glyph (â, è, é …)
      is replaced by a "NöDNL Studio" watermark scribble instead of the real
-     letter. Exclude that block so accented characters (the â in "Flâneur")
+     letter. Exclude that block so accented characters (the È in "CRÈCHE")
      fall back to Helvetica/Arial and stay legible — swap in the licensed cut
      and this line can go. */
-
+  unicode-range: U+0-BF, U+100-10FFFF;
 }
 
 /* brand wordmark face (public/Glasset Demo.ttf) — used only by the top-left
@@ -131,7 +131,7 @@ canvas {
      same px, so the lockup is stepped up to hold its old visual weight */
   font-size: clamp(18px, 2.1vw, 26px);
   letter-spacing: 0.16em;
-  color: #eafaf6;
+  color: var(--c-cream);
   text-shadow: 0 1px 12px rgba(6, 28, 34, 0.6);
   pointer-events: none;
   user-select: none;
@@ -149,9 +149,56 @@ canvas {
   color: var(--c-red);
   text-shadow: 0 2px 24px rgba(8, 30, 36, 0.28);
 }
-/* The three project sections have no DOM title: their cinematic centred name
-   is rendered INSIDE the 3D scene (createAquarium's buildPropTitles) so the
-   prop model can genuinely occlude it — DOM can never paint under WebGL. */
+/* `main` has no DOM title either: its wordmark-scale "Creche Tank" is rendered
+   INSIDE the 3D scene (createAquarium's buildBigTitle) so the creatures swim in
+   front of the letters — DOM can never paint under WebGL. */
+
+/* ---------- about: copy left, creatures right ----------
+   The section splits the frame down the middle. This block owns the left half;
+   the choreography pushes the pair (and their chat stacks, which follow them)
+   into the right half. Contents are LEFT-aligned but the block as a whole is
+   centred inside that half, so the copy reads as a column rather than as
+   something pinned to the edge. */
+.about-block {
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 50vw;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 4vw;
+  box-sizing: border-box;
+  pointer-events: none;
+}
+.about-inner {
+  width: min(34vw, 520px);
+  text-align: left;
+  will-change: transform, opacity;
+}
+.about-title {
+  margin: 0 0 0.1em; /* the copy tucks up close under the title */
+  font-family: var(--display);
+  font-weight: normal; /* Quedami ships a single weight */
+  font-size: clamp(72px, 11.5vw, 190px);
+  line-height: 0.86;
+  letter-spacing: 0.004em;
+  color: var(--c-red);
+  text-shadow: 0 2px 24px rgba(8, 30, 36, 0.28);
+}
+.about-copy {
+  margin: 0 0 0.5em;
+  /* the display face, same as the title — this block is one typographic unit,
+     not a heading with body copy under it. Quedami is drawn for size, so it
+     runs large here and on tighter leading than the serif would take. */
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: clamp(22px, 2.15vw, 36px);
+  line-height: 1.3;
+  color: var(--c-cream);
+  text-shadow: 0 1px 14px rgba(8, 30, 36, 0.5);
+}
 
 /* ---------- conversation bubbles (chat above each creature) ---------- */
 /* A "stack" is one speaker's column, anchored above its creature's head; JS
@@ -415,26 +462,6 @@ canvas {
 .section-layer[data-section="about"] .content-cloud {
   --cloud-mask: url("/UI/content bubble-sm.svg");
 }
-.section-layer[data-section="cassette-jury"] .content-cloud {
-  left: 38vw; /* pulled in toward centre */
-  top: 8vh;
-  width: min(48vw, 680px);
-  height: min(82vh, 760px);
-}
-.section-layer[data-section="santa-beer"] .content-cloud {
-  left: 50%; /* centred; the two animals flank it symmetrically */
-  margin-left: calc(min(50vw, 700px) * -0.5);
-  top: 6vh;
-  width: min(50vw, 700px);
-  height: min(86vh, 800px);
-}
-.section-layer[data-section="flaneur"] .content-cloud {
-  left: 50%; /* centred; the two animals flank it symmetrically */
-  margin-left: calc(min(50vw, 700px) * -0.5);
-  top: 8vh;
-  width: min(50vw, 700px);
-  height: min(82vh, 780px);
-}
 
 /* ---------- mobile: single-column chat + full-width clouds ---------- */
 @media (max-width: 768px) {
@@ -498,6 +525,30 @@ canvas {
   .cloud-inner {
     inset: 12% 11% 16% 11%;
   }
+
+  /* portrait has no left/right split: the copy sits across the top, the pair
+     and their chat below it */
+  .about-block {
+    width: 100vw;
+    bottom: auto;
+    height: auto;
+    top: 11vh;
+    padding: 0 7vw;
+  }
+  .about-inner {
+    width: 100%;
+  }
+  .about-title {
+    font-size: clamp(56px, 17vw, 96px);
+  }
+  .about-copy {
+    font-size: 22px;
+    line-height: 1.3;
+  }
+  .section-layer[data-section="about"] .cchat {
+    bottom: 26vh;
+  }
+
 }
 
 /* ---------- mobile: drop the backdrop passes ----------
@@ -557,6 +608,399 @@ canvas {
 .ui .h {
   opacity: 0.5;
   margin-top: 4px;
+}
+
+/* ---------- work: labels riding the project orbs ----------
+   One label per orb, positioned every frame by Work.jsx from the scene's live
+   screen anchors — so they are placed in page space, not laid out. They sit to
+   the LEFT of their orb (right-aligned into the gap between the creatures and
+   the lineup; the far right belongs to the rail) and never take pointer events:
+   the orb behind them is the click target. */
+.orb-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.orb-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: min(24vw, 330px);
+  text-align: right;
+  will-change: transform, opacity;
+}
+.orb-label-title {
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: clamp(20px, 2.3vw, 32px);
+  line-height: 1;
+  color: var(--c-cream);
+  text-shadow: 0 2px 18px rgba(8, 30, 36, 0.55);
+}
+.orb-label-tags,
+.orb-label-one {
+  /* only the selected orb spells itself out; the rest are just a name in the
+     water, so these two stay collapsed until the label is the active one */
+  max-height: 0;
+  overflow: hidden;
+  opacity: 0;
+  margin-top: 0;
+  transition: max-height 0.5s ease, opacity 0.4s ease, margin-top 0.5s ease;
+}
+.orb-label.is-active .orb-label-tags,
+.orb-label.is-active .orb-label-one {
+  max-height: 8em;
+  opacity: 1;
+}
+.orb-label.is-active .orb-label-tags {
+  margin-top: 8px;
+}
+.orb-label.is-active .orb-label-one {
+  margin-top: 6px;
+}
+.orb-label-tags {
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--c-blue);
+  text-shadow: 0 1px 10px rgba(8, 30, 36, 0.6);
+}
+.orb-label-one {
+  font-family: var(--serif);
+  font-size: clamp(14px, 1.15vw, 17px);
+  line-height: 1.35;
+  color: rgba(253, 245, 231, 0.86);
+  text-shadow: 0 1px 12px rgba(8, 30, 36, 0.65);
+}
+
+/* ---------- work: the project rail ----------
+   Right edge, vertically centred: category chips over a progress track + the
+   filtered project list. Everything here is a real control, so unlike the orb
+   labels it takes pointer events — and it carries `ui-surface`, which is how
+   the scene knows a pointer over it is on UI rather than on the tank. */
+.project-rail {
+  position: absolute;
+  right: 2.6vw;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 9;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 20px;
+  pointer-events: auto;
+  transition: opacity 0.3s ease;
+}
+/* the slide-out nav lands in exactly this space */
+body.nav-open .project-rail,
+.project-rail.is-hidden {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* Type only — no pills. The categories are a single line of words above the
+   list; the selected one is marked by colour alone. */
+.rail-chips {
+  display: flex;
+  flex-wrap: nowrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 14px;
+  white-space: nowrap;
+}
+.rail-chip {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: rgba(233, 246, 242, 0.45);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  cursor: pointer;
+  text-shadow: 0 1px 10px rgba(6, 28, 34, 0.6);
+  transition: color 0.25s ease;
+}
+.rail-chip:hover {
+  color: rgba(233, 246, 242, 0.8);
+}
+.rail-chip.is-on {
+  color: var(--c-blue);
+}
+
+.rail-body {
+  display: flex;
+  align-items: stretch;
+  gap: 14px;
+}
+.rail-track {
+  position: relative;
+  width: 16px; /* a 1px line is impossible to grab — the hit area is the padding */
+  cursor: pointer;
+  touch-action: none;
+  order: 2; /* the track runs down the OUTER edge, right of the names */
+}
+.rail-track-line {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  transform: translateX(-50%);
+  background: rgba(233, 246, 242, 0.26);
+}
+.rail-track-thumb {
+  position: absolute;
+  left: 50%;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--c-cream);
+  transform: translate(-50%, -50%);
+  box-shadow: 0 0 12px rgba(253, 245, 231, 0.55);
+  transition: top 0.55s cubic-bezier(0.22, 0.61, 0.36, 1);
+}
+
+.rail-list {
+  order: 1;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-align: right;
+}
+.rail-item {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 5px 0;
+  display: block;
+  width: 100%;
+  text-align: right;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: rgba(233, 246, 242, 0.5);
+  text-shadow: 0 1px 10px rgba(6, 28, 34, 0.6);
+  transition: color 0.25s ease;
+}
+.rail-item:hover {
+  color: rgba(233, 246, 242, 0.85);
+}
+.rail-item.is-on {
+  color: #fff;
+}
+.rail-count {
+  display: flex;
+  gap: 4px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  color: rgba(233, 246, 242, 0.55);
+}
+.rail-count-sep {
+  opacity: 0.45;
+}
+
+/* ---------- work: the case-study panel ----------
+   Right two thirds of the frame. The left third is deliberately uncovered —
+   the creatures and their conversation keep playing next to what you're
+   reading, which is the whole reason this isn't a full-screen takeover.
+
+   Brand cream with ink text (DESIGN_SYSTEM.md §2), but TRANSLUCENT: the tank
+   keeps moving behind the words, and the scene's composite pass ripples that
+   water wherever the cursor crosses this rect (createAquarium's setRippleRect).
+   The cream alpha is the balance point — enough page for #303030 body text to
+   hold contrast, thin enough that the ripple reads through it. */
+.project-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 66.6vw;
+  z-index: 12;
+  pointer-events: auto;
+  background: var(--noise-bg), rgba(253, 245, 231, 0.72);
+  background-blend-mode: multiply, normal;
+  background-repeat: repeat, no-repeat;
+  background-size: 220px 220px, 100% 100%;
+  /* a light frost only — a heavy blur would smear the ripple into a haze */
+  -webkit-backdrop-filter: blur(3px) saturate(108%);
+  backdrop-filter: blur(3px) saturate(108%);
+  box-shadow: -18px 0 60px rgba(6, 24, 28, 0.35);
+  will-change: transform, opacity;
+}
+.panel-scroll {
+  height: 100%;
+  overflow-y: auto;
+  overscroll-behavior: contain; /* a scroll that bottoms out here must not leak to the page */
+  padding: 9vh 6vw 8vh 5vw;
+  /* the reading column stays a column no matter how wide the panel gets */
+  max-width: 720px;
+}
+.panel-close {
+  position: absolute;
+  top: 3vh;
+  /* top-LEFT, not top-right: the site's nav toggle already owns the top-right
+     corner of the viewport, and the two would sit on top of each other */
+  left: 2vw;
+  z-index: 2;
+  appearance: none;
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  border: 1px solid rgba(83, 83, 83, 0.35);
+  background: transparent;
+  color: var(--c-ink);
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+  transition: color 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+}
+.panel-close:hover {
+  color: var(--c-red);
+  border-color: var(--c-red);
+  transform: rotate(90deg);
+}
+
+.panel-title {
+  margin: 0;
+  font-family: var(--display);
+  font-weight: normal;
+  font-size: clamp(40px, 4.6vw, 68px);
+  line-height: 0.95;
+  color: var(--c-red);
+}
+.panel-tagline {
+  margin: 10px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: clamp(17px, 1.5vw, 22px);
+  color: var(--c-ink);
+}
+.panel-meta-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-top: 16px;
+  padding-bottom: 18px;
+  border-bottom: 1px solid rgba(83, 83, 83, 0.22);
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--c-teal);
+}
+.panel-summary {
+  margin: 24px 0 0;
+  font-family: var(--serif);
+  font-size: clamp(16px, 1.3vw, 19px);
+  line-height: 1.55;
+  color: var(--c-ink);
+}
+
+/* the media slot — the film on Video projects, the looping preview on the
+   rest. 16:9, filling the reading column, same box either way. */
+.panel-media {
+  margin-top: 30px;
+  aspect-ratio: 16 / 9;
+  width: 100%;
+  border: 1px solid rgba(83, 83, 83, 0.22);
+  background: rgba(83, 83, 83, 0.06);
+  overflow: hidden;
+}
+.panel-media iframe,
+.panel-media img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border: 0;
+  object-fit: cover; /* the clips aren't all 16:9 — crop rather than letterbox */
+}
+.panel-media-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgba(83, 83, 83, 0.5);
+}
+
+.panel-cta {
+  display: inline-block;
+  margin-top: 34px;
+  padding: 13px 26px;
+  border-radius: 999px;
+  border: 1px solid var(--c-ink);
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  text-decoration: none;
+  color: var(--c-ink);
+  transition: background 0.25s ease, color 0.25s ease, border-color 0.25s ease;
+}
+.panel-cta:hover {
+  background: var(--c-red);
+  border-color: var(--c-red);
+  color: var(--c-cream);
+}
+
+/* ---------- more: labels under the social orbs ----------
+   Centred under each orb rather than beside it: the cluster is scattered, so a
+   side anchor would run labels across neighbouring balls. Placed every frame by
+   SocialOrbs.jsx; the orb behind them is the click target, so no pointer events. */
+.social-labels {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 8;
+}
+.social-label {
+  position: absolute;
+  top: 0;
+  left: 0;
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  /* `more` is the pale section — these read as dark ink, not the cream used
+     over the dark stage */
+  color: #23474f;
+  text-shadow: 0 1px 10px rgba(255, 255, 255, 0.65);
+  will-change: transform, opacity;
+}
+
+/* ---------- bright stage (`more`) ----------
+   The last section descends into pale water (choreography's deepGlow), where
+   the light-on-dark chrome disappears. Body class set by Stage.jsx; the
+   transition makes the flip ride the camera dive instead of snapping at the
+   section boundary. */
+.ui,
+.wordmark {
+  transition: color 0.8s ease, text-shadow 0.8s ease, opacity 0.4s ease;
+}
+body.bright-stage .ui {
+  color: #23474f;
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.6);
+}
+body.bright-stage .ui .h {
+  opacity: 0.72; /* 0.5 vanishes against pale water */
+}
+body.bright-stage .wordmark {
+  color: var(--c-red);
+  text-shadow: 0 1px 12px rgba(255, 255, 255, 0.55);
 }
 .hint {
   position: fixed;
@@ -863,45 +1307,94 @@ body:not(.nav-open) .menu a {
   background: linear-gradient(200deg, rgba(228, 233, 236, 0.34), rgba(177, 241, 255, 0.08));
   -webkit-backdrop-filter: blur(6px) saturate(115%);
   backdrop-filter: blur(6px) saturate(115%);
-  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 3px 14px rgba(8, 30, 36, 0.28);
+  /* a white glow rather than a dark drop shadow — the circle reads as a lit
+     bubble on the glass instead of an object casting onto the tank */
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.5), 0 3px 18px rgba(255, 255, 255, 0.45);
   transition: transform 0.3s ease;
 }
 .nav-toggle:hover {
   transform: scale(1.06);
 }
+/* The toggle is a bare glass circle — no hamburger inside it. The bar element
+   is kept (and hidden) rather than removed so the open/close state, which the
+   menu itself animates, has nothing to keep in sync here. */
 .nav-toggle .bar,
 .nav-toggle .bar::before,
 .nav-toggle .bar::after {
-  width: 20px;
-  height: 2px;
-  border-radius: 2px;
-  background: #f4fbff;
+  display: none;
 }
-.nav-toggle .bar {
-  position: relative;
-  transition: background 0.3s ease;
-}
-.nav-toggle .bar::before,
-.nav-toggle .bar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  transition: transform 0.3s ease, top 0.3s ease;
-}
-.nav-toggle .bar::before {
-  top: -6px;
-}
-.nav-toggle .bar::after {
-  top: 6px;
-}
-body.nav-open .nav-toggle .bar {
-  background: transparent;
-}
-body.nav-open .nav-toggle .bar::before {
-  top: 0;
-  transform: rotate(45deg);
-}
-body.nav-open .nav-toggle .bar::after {
-  top: 0;
-  transform: rotate(-45deg);
+
+/* ---------- portrait overrides for the work section ----------
+   These live at the END of the file on purpose: the base .orb-label / .rail-*
+   / .project-panel rules are declared below the main mobile block, so an
+   override placed up there would lose to them on source order alone. */
+@media (max-width: 768px) {
+  /* ---- work, portrait ---- */
+  /* the lineup runs up the middle here, so labels sit UNDER their orb (Work.jsx
+     switches the anchor to match) and get the full width to wrap in */
+  .orb-label {
+    /* narrow enough to clear the rail on the right edge — see the portrait
+       nudge in Work.jsx's follow loop */
+    width: 50vw;
+    text-align: center;
+  }
+  .orb-label-title {
+    font-size: clamp(22px, 7vw, 34px);
+  }
+  .orb-label-one {
+    font-size: 14px;
+  }
+  /* The rail loses its name list: on a phone the label under each orb already
+     names it, and a swipe is how you move — so what's left is what a phone
+     actually needs, the filter and a sense of position. */
+  .project-rail {
+    right: 4vw;
+    gap: 14px;
+  }
+  .rail-list {
+    display: none;
+  }
+  /* the categories stay on ONE line here too, so they shrink rather than wrap */
+  .rail-chips {
+    gap: 10px;
+  }
+  .rail-chip {
+    font-size: 9px;
+    letter-spacing: 0.1em;
+  }
+  .rail-track {
+    /* the list used to give this its height; on its own it needs one */
+    min-height: 26vh;
+  }
+  /* the lineup owns the top half in portrait, so the chat column drops to sit
+     just above the creatures instead of running through the middle of it */
+  .section-layer[data-section="work"] .cchat {
+    bottom: 26vh;
+  }
+
+  /* the case study takes the whole screen — there is no room for a third of
+     the frame to stay uncovered in portrait */
+  .project-panel {
+    width: 100vw;
+  }
+  .panel-scroll {
+    padding: 11vh 7vw 10vh 7vw;
+  }
+  .panel-close {
+    left: auto;
+    right: 5vw; /* portrait has no room to keep clear of the nav toggle — it moves down instead */
+    top: 11vh;
+  }
+  /* On desktop the corner text lives in the third the panel leaves uncovered.
+     In portrait the panel is full-screen, and the page chrome paints OVER it
+     (it's fixed, outside the stage's stacking context) — so the corner text
+     steps aside, and the wordmark and nav toggle, both authored light-on-dark,
+     flip to ink against the cream page. */
+  body.panel-open .ui {
+    opacity: 0;
+  }
+  body.panel-open .wordmark {
+    color: var(--c-ink);
+    text-shadow: none;
+  }
 }
