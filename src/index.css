@@ -7,12 +7,11 @@
   font-weight: normal;
   font-style: normal;
   font-display: swap;
-  /* This build of Quedami is a demo: every Latin-1 accented glyph (â, è, é …)
-     is replaced by a "NöDNL Studio" watermark scribble instead of the real
-     letter. Exclude that block so accented characters (the È in "CRÈCHE")
-     fall back to Helvetica/Arial and stay legible — swap in the licensed cut
-     and this line can go. */
-  unicode-range: U+0-BF, U+100-10FFFF;
+  /* No unicode-range here on purpose. The demo cut this replaced drew every
+     Latin-1 accented glyph (â, è, é …) as a "NöDNL Studio" watermark scribble,
+     so U+C0–U+FF used to be carved out to send those characters to Helvetica.
+     The licensed cut draws all 64 of them properly — the È in "CRÈCHE" and the
+     â in "Flâneur" are Quedami's own now, and nothing falls back. */
 }
 
 /* brand wordmark face (public/Glasset Demo.ttf) — used only by the top-left
@@ -48,7 +47,7 @@
       rgba(218, 242, 247, 0.199) 90%,
       rgba(218, 242, 247, 0.199) 100%
   );
-  --glass-blur: blur(0px) saturate(100%) brightness(0.95);
+  --glass-blur: blur(10px) saturate(100%) brightness(1);
   /* Heavy frost for the content clouds only — they carry long-form reading
      text over the live tank, so the scene behind should read as colour and
      movement rather than as shapes competing with the paragraphs.
@@ -222,7 +221,7 @@ canvas {
   width: 100%;
   box-sizing: border-box;
   font-family: var(--mono);
-  font-size: clamp(11px, 0.95vw, 14px);
+  font-size: clamp(11px, 0.95vw, 11px);
   line-height: 1.5;
   color: var(--c-ink); /* solid, full-opacity text */
   /* SAME width for every bubble; only the HEIGHT grows with the text.
@@ -566,7 +565,7 @@ canvas {
     /* the desktop value is blur(0px) saturate(100%) brightness(0.95) — no blur
        and no saturation change, so the only thing lost here is a 5% darken of
        whatever sits behind an already-frosted panel */
-    --glass-blur: none;
+    --glass-blur: blur(10px) saturate(100%) brightness(1);
     /* --cloud-blur is a real 22px radius, i.e. exactly the kind of pass this
        whole block exists to keep off phone GPUs — a wide-radius blur re-run
        every frame against the live tank behind it. The cloud keeps its own
@@ -1354,13 +1353,20 @@ body:not(.nav-open) .menu a {
   .rail-list {
     display: none;
   }
-  /* the categories stay on ONE line here too, so they shrink rather than wrap */
+  /* The categories stack instead of running across the top. On one line they
+     had to shrink to 9px to fit four words in a phone's width, and they sat
+     over the lineup; down the right edge they read at full size and occupy the
+     column the name list left empty. */
   .rail-chips {
-    gap: 10px;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 2px;
   }
   .rail-chip {
-    font-size: 9px;
-    letter-spacing: 0.1em;
+    /* padding, not gap, does the spacing — it grows the tap target with it */
+    padding: 4px 0;
+    font-size: 10px;
+    letter-spacing: 0.12em;
   }
   .rail-track {
     /* the list used to give this its height; on its own it needs one */

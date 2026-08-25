@@ -62,7 +62,7 @@ export const SECTIONS = [
     id: 'about',
     title: 'About',
     chat: [
-      { who: 'axolotl', text: 'So, what is CRÈCHE?' },
+      { who: 'axolotl', text: 'So, what is Crèche?' },
       { who: 'octopus', text: 'A tank. Two of us live in it — the octopus and the axolotl.' },
       { who: 'axolotl', text: 'A creative tech/media studio. We make small weird things. The tank is real.' },
       { who: 'octopus', text: 'What do we make?' },
@@ -74,7 +74,7 @@ export const SECTIONS = [
       // and their chat pushed over to the right half (see .about-block).
       plain: true,
       heading: null,
-      body: 'CRÈCHE is a creative tech/media studio. It makes small, weird things — interactive things, video things, story things.',
+      body: 'Crèche is a creative tech/media studio. It makes small, weird things — interactive things, video things, story things.',
       button: null,
     },
   },

@@ -55,7 +55,17 @@ export default function Work({ scene, catalog, isActive, mobile }) {
   // every filter change (filtering just re-strings which orbs are on the arc)
   useEffect(() => {
     if (!scene || !scene.setOrbs || !projects.length) return undefined;
-    scene.setOrbs('work', projects.map((p) => ({ id: p.id, color: p.color })));
+    scene.setOrbs(
+      'work',
+      projects.map((p) => ({
+        id: p.id,
+        color: p.color,
+        model: p.model,
+        modelYaw: p.modelYaw,
+        modelRoll: p.modelRoll,
+        modelScale: p.modelScale,
+      })),
+    );
     return () => scene.setOrbs('work', []);
   }, [scene, projects]);
 

@@ -91,7 +91,7 @@ export const STAGE = {
   'work':   {
     // far enough left that the octopus's chat bubbles (236px wide, centred on
     // it) still clear the case-study panel's edge at 33.4vw when it opens
-    axolotl: { sx: 0.12, sy: 0.83 }, octopus: { sx: 0.245, sy: 0.85 },
+    axolotl: { sx: 0.22, sy: 0.83 }, octopus: { sx: 0.345, sy: 0.85 },
     cameraZ: 9.0, camY: -3.5, envColor: STAGE_ENV, stageLight: 1,
     lineup: { sx: 0.70, sy: 0.46, spread: 0.175, bend: 0.022, depth: 1.5 },
   },
@@ -133,8 +133,10 @@ export const STAGE_MOBILE = {
   'more':   {
     axolotl: { sx: 0.26, sy: 0.84 }, octopus: { sx: 0.68, sy: 0.88 },
     cameraZ: 9.0, camY: -9.0, envColor: BRIGHT_ENV, stageLight: 0, deepGlow: 1, camFollow: 0.96,
-    // portrait: the cluster sits above the creatures rather than beside them
-    social: { sx: 0.50, sy: 0.42, spread: 0.16, depth: 1.1, scale: 0.62 },
+    // Portrait: the cluster sits above the creatures rather than beside them —
+    // and high enough that its lowest orbs clear the chat bubbles, which run
+    // across the bottom third here instead of down one side.
+    social: { sx: 0.50, sy: 0.34, spread: 0.16, depth: 1.1, scale: 0.62 },
   },
 };
 

@@ -5,13 +5,16 @@
  * — that file is the ONE place to add/remove/edit a project. Nothing here
  * hard-codes a project id.
  *
- * Per-project presentation (orb colour, the model that eventually replaces the
- * placeholder sphere, the hover preview clip) is optional and lives in the same
- * JSON under an `orb` key, so it stays editable without touching code:
+ * Per-project presentation (the model shown in the lineup, how it is turned and
+ * sized there, the fallback orb colour, the hover preview clip) is optional and
+ * lives in the same JSON under an `orb` key, so it stays editable without
+ * touching code:
  *
- *   "orb": { "color": "#F186AF", "model": "/models/flaneur.glb", "preview": "/preview/flaneur.gif" }
+ *   "orb": { "color": "#F186AF", "model": "/project%20UI/flaneur.glb",
+ *            "modelYaw": 3.14, "modelRoll": 0, "modelScale": 1,
+ *            "preview": "/preview/flaneur.gif" }
  *
- * Anything omitted falls back to the brand palette / legacy asset map below.
+ * Anything omitted falls back to the lineup map / brand palette below.
  */
 
 const SRC = '/creche-projects.json';
@@ -20,7 +23,11 @@ const SRC = '/creche-projects.json';
  *  has no `orb.color` of its own. Ordered so neighbours in the lineup contrast.
  *  The paler brand swatches are deepened here: the orb material brightens and
  *  clear-coats whatever tint it is given, so #A7D8E5 / #FDF5E7 straight off the
- *  palette both come out as the same white ball. */
+ *  palette both come out as the same white ball.
+ *
+ *  Now that every project has a lineup model, a colour is what its orb wears
+ *  for the beat before that GLB decodes — and the whole look of a project that
+ *  hasn't been modelled yet. */
 const ORB_PALETTE = [
   '#E8511E', // orange
   '#F186AF', // brand pink
@@ -37,11 +44,32 @@ const LEGACY_PREVIEWS = {
   flaneur: '/preview/flaneur.gif',
 };
 
-/** GLBs modelled for the v1 site, reusable as a project's lineup model. */
-const LEGACY_MODELS = {
-  'cassette-jury': '/models/cassette-jury.glb',
-  'santa-beer': '/models/santa-beer.glb',
-  flaneur: '/models/flaneur.glb',
+/**
+ * Lineup models — the GLB a project shows in the arc instead of the placeholder
+ * sphere. Every project has one; anything not listed here (a new entry in the
+ * JSON, say) falls back to a sphere in its `orb.color`.
+ *
+ * These are the small UI-scale exports in `public/project UI/`, all under 80 kB.
+ * The full v1 GLBs in `/models` (3–4 MB each, textured for a close-up) are the
+ * wrong asset for something that renders 200 px tall at most, so they stay out
+ * of the lineup.
+ *
+ * `yaw` is the resting turn (radians) that puts a model's own front toward the
+ * camera — most of the set comes out of Blender facing away, so most want π.
+ * `roll` turns a model in the screen plane, for an export that came out on its
+ * side. `scale` is a nudge for one the automatic box fit sizes wrongly.
+ */
+const ORB_MODELS = {
+  flaneur: { url: '/project%20UI/flaneur.glb', yaw: Math.PI },
+  'cassette-jury': { url: '/project%20UI/jury.glb', yaw: Math.PI },
+  'santa-beer': { url: '/project%20UI/santa.glb', yaw: Math.PI },
+  eureka: { url: '/project%20UI/eureka.glb', yaw: Math.PI },
+  // the one export that already faces the camera — the π the others need turns
+  // this one back-to-front
+  understory: { url: '/project%20UI/understory.glb', yaw: 0 },
+  // a cube is the one shape that fills its own bounding box, so the fit that
+  // sizes every other model right leaves this one reading a size too big
+  'ep0ch-art': { url: '/project%20UI/ep0ch.glb', yaw: Math.PI, scale: 0.82 },
 };
 
 const asArray = (v) => (Array.isArray(v) ? v : v ? [v] : []);
@@ -84,6 +112,7 @@ function normaliseBrief(brief) {
 /** Flatten one raw JSON entry into the shape the UI consumes. */
 function normalise(raw, i) {
   const orb = raw.orb || {};
+  const lineup = ORB_MODELS[raw.id] || {};
   const sections = raw.sections || {};
   return {
     id: raw.id,
@@ -116,7 +145,10 @@ function normalise(raw, i) {
     credits: raw.credits || null,
     notes: raw.notes || null,
     color: orb.color || ORB_PALETTE[i % ORB_PALETTE.length],
-    model: orb.model || LEGACY_MODELS[raw.id] || null,
+    model: orb.model || lineup.url || null,
+    modelYaw: orb.modelYaw ?? lineup.yaw ?? 0,
+    modelRoll: orb.modelRoll ?? lineup.roll ?? 0,
+    modelScale: orb.modelScale ?? lineup.scale ?? 1,
     preview: orb.preview || LEGACY_PREVIEWS[raw.id] || null,
     /** the film itself, for Video projects — `"links": { "video": "…" }` */
     video: toEmbed(raw.links && raw.links.video),

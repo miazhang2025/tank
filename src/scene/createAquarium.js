@@ -1444,8 +1444,10 @@ export function createAquarium(container, opts = {}) {
   // except where the orbs go, which is the one thing each group defines itself
   // (`layout` below).
   //
-  // Placeholder spheres for now: an entry's `model` GLB can replace its sphere
-  // later without changing any of the layout code.
+  // An entry without a `model` is a plain sphere; one with a `model` GLB swaps
+  // the sphere for that model the moment it decodes (see `attachOrbModel`).
+  // Either way it is one object placed by the layout code below, so nothing else
+  // in the rig — magnet, hit test, label anchors — knows the difference.
   const ORB_RADIUS = 0.44; // world radius of an orb at its full size
   const ORB_FADE_FROM = 2.2; // slots from the selection where a lineup orb starts fading out
   // Magnetism, all in SCREEN space — the pull has to start before the cursor is
@@ -1525,16 +1527,130 @@ export function createAquarium(container, opts = {}) {
     },
   };
 
+  // The largest dimension a model orb is fitted to, in the sphere's own units
+  // (where the placeholder is 2 across). Slightly over 2 because a figure is
+  // never as wide as the ball it replaces — matched by eye so the two read as
+  // the same size in the lineup, not so the boxes match.
+  //
+  // Fitting the bounding box is right for most shapes but not all: a model that
+  // fills its box (the ep0ch cube) reads much bigger than one that tapers inside
+  // the same box (the mushroom), at identical fit. That's what an entry's
+  // `modelScale` is for — a per-model nudge, applied on top.
+  const ORB_MODEL_FIT = 2.1;
+
+  /** url -> Promise<{root, offset, fit}> — decoded once, cloned per orb. */
+  const orbModelCache = new Map();
+
+  /** The tint tweaks that make a creature material read as an orb rather than a toy. */
+  function tuneOrbMat(mat) {
+    // The creature defaults desaturate + brighten + heavily clear-coat toward
+    // the candy-toy look, which turns any pale tint into the same white ball.
+    // An orb IS its entry's colour, so it keeps more of the tint it's given.
+    mat.uniforms.uDesat.value = 0.12;
+    mat.uniforms.uBright.value = 1.0;
+    mat.uniforms.uCoat.value = 0.22;
+    mat.uniforms.uOpacity.value = 0;
+    return mat;
+  }
+
   /**
-   * (Re)build a group's orbs. `list` is [{ id, color }] in display order;
-   * anything previously built for that group is disposed.
+   * Decode an orb's GLB once and keep the result as a template: the geometry is
+   * shared by every clone, so re-filtering the lineup (which rebuilds the orbs)
+   * costs nothing after the first load.
+   */
+  function loadOrbModel(url) {
+    let pending = orbModelCache.get(url);
+    if (pending) return pending;
+    pending = new Promise((resolve, reject) => {
+      loader.load(url, resolve, undefined, reject);
+    }).then((gltf) => {
+      const root = gltf.scene;
+      const box = new THREE.Box3().setFromObject(root);
+      const size = new THREE.Vector3();
+      const center = new THREE.Vector3();
+      box.getSize(size);
+      box.getCenter(center);
+      const maxDim = Math.max(size.x, size.y, size.z) || 1;
+      root.traverse((o) => {
+        if (o.isMesh) o.frustumCulled = false;
+      });
+      return {
+        root,
+        offset: center.clone().negate(), // centre it on the slot, like the sphere
+        fit: ORB_MODEL_FIT / maxDim,
+      };
+    });
+    orbModelCache.set(url, pending);
+    return pending;
+  }
+
+  /**
+   * Swap an orb's placeholder sphere for its model as soon as the GLB lands.
+   * The sphere is what's on screen until then, so a slow decode costs a beat of
+   * the old look rather than a hole in the lineup.
+   */
+  function attachOrbModel(o, url, scale, roll) {
+    loadOrbModel(url)
+      .then((tpl) => {
+        if (disposed || o.dead) return;
+        const fit = tpl.fit * (scale || 1);
+        const inner = tpl.root.clone(true);
+        inner.scale.setScalar(fit);
+        inner.position.copy(tpl.offset).multiplyScalar(fit);
+        const mats = [];
+        inner.traverse((m) => {
+          if (!m.isMesh) return;
+          // Same candy shading as the creatures, driven by the GLB's own
+          // baseColor (these UI models ship flat colours, no maps) so each part
+          // keeps the palette it was modelled in instead of the orb's one tint.
+          const src = Array.isArray(m.material) ? m.material[0] : m.material;
+          const map = src && src.map ? src.map : null;
+          const hex = !map && src && src.color ? src.color.getHex() : 0xffffff;
+          const mat = tuneOrbMat(makeCreatureMat(map, hex));
+          // thin parts are modelled as single-sided shells — without this the
+          // back of a card-flat model is see-through as it sways
+          mat.side = THREE.DoubleSide;
+          m.material = mat;
+          mats.push(mat);
+        });
+        // Roll gets its own wrapper rather than going on the holder: the holder
+        // is what the per-frame yaw sway writes to, and it is `inner`'s offset
+        // that put the model's centre on this origin — so a Z turn applied here
+        // spins the model in place, while the same turn on `inner` would swing
+        // it around whatever origin Blender happened to export.
+        const rolled = new THREE.Group();
+        rolled.rotation.z = roll || 0;
+        rolled.add(inner);
+        // inherit the placeholder's live state so the swap lands mid-fade
+        // without a flash: same slot, same size, same visibility
+        const holder = new THREE.Group();
+        holder.add(rolled);
+        holder.visible = o.mesh.visible;
+        holder.position.copy(o.mesh.position);
+        holder.scale.copy(o.mesh.scale);
+        for (const mat of mats) mat.uniforms.uOpacity.value = o.mats[0].uniforms.uOpacity.value;
+        scene.remove(o.mesh);
+        for (const mat of o.mats) mat.dispose(); // the sphere's geometry is shared — only its material goes
+        scene.add(holder);
+        o.mesh = holder;
+        o.mats = mats;
+        o.isModel = true;
+      })
+      .catch((err) => console.error('orb model load failed', url, err));
+  }
+
+  /**
+   * (Re)build a group's orbs. `list` is [{ id, color, model?, modelYaw?,
+   * modelRoll?, modelScale? }] in display order; anything previously built for
+   * that group is disposed.
    */
   function setOrbs(groupName, list) {
     const group = orbGroups[groupName];
     if (!group) return;
     for (const o of group.orbs) {
+      o.dead = true; // an in-flight model load must not attach to a torn-down orb
       scene.remove(o.mesh);
-      o.mat.dispose();
+      for (const mat of o.mats) mat.dispose();
       delete orbAnchors[o.id];
     }
     group.orbs = (list || []).map((p, i) => {
@@ -1542,19 +1658,23 @@ export function createAquarium(container, opts = {}) {
       // same glossy candy shading, tinted flat by uTint, and already wired to
       // the scene's fog / stage-dim / spotlight uniforms. (Its skinning chunks
       // are inert without USE_SKINNING, i.e. on a plain Mesh like this one.)
-      const mat = makeCreatureMat(null, new THREE.Color(p.color).getHex());
-      // The creature defaults desaturate + brighten + heavily clear-coat toward
-      // the candy-toy look, which turns any pale tint into the same white ball.
-      // An orb IS its entry's colour, so it keeps more of the tint it's given.
-      mat.uniforms.uDesat.value = 0.12;
-      mat.uniforms.uBright.value = 1.0;
-      mat.uniforms.uCoat.value = 0.22;
-      mat.uniforms.uOpacity.value = 0;
+      const mat = tuneOrbMat(makeCreatureMat(null, new THREE.Color(p.color).getHex()));
       const mesh = new THREE.Mesh(orbGeo, mat);
       mesh.visible = false;
       scene.add(mesh);
       orbAnchors[p.id] = { x: 0, y: 0, visible: false, active: false, radius: 0, alpha: 0 };
-      return { id: p.id, mesh, mat, phase: i * 1.7, fade: 0, hover: 0 };
+      const orb = {
+        id: p.id,
+        mesh,
+        mats: [mat],
+        phase: i * 1.7,
+        fade: 0,
+        hover: 0,
+        isModel: false, // flips once its GLB (if any) has landed
+        yaw: p.modelYaw || 0, // resting turn that faces a model's front at camera
+      };
+      if (p.model) attachOrbModel(orb, p.model, p.modelScale, p.modelRoll);
+      return orb;
     });
     group.order = (list || []).map((p) => p.id);
   }
@@ -1636,7 +1756,7 @@ export function createAquarium(container, opts = {}) {
       o.fade += (want - o.fade) * Math.min(1, dt * 6);
       const alpha = Math.min(1, o.fade) * group.fade;
       o.mesh.visible = alpha > 0.004;
-      o.mat.uniforms.uOpacity.value = alpha;
+      for (const mat of o.mats) mat.uniforms.uOpacity.value = alpha;
       const a = orbAnchors[o.id];
       if (!o.mesh.visible || !L) {
         a.visible = false;
@@ -1681,7 +1801,13 @@ export function createAquarium(container, opts = {}) {
         _owp.z,
       );
       o.mesh.scale.setScalar(ORB_RADIUS * emphasis);
-      o.mesh.rotation.y += dt * 0.15;
+      // A ball has no front, so it just turns. A model does — its screen, its
+      // face, its label side — and a full revolution would spend half its time
+      // hiding it (or, on a card-thin model, edge-on and gone). Models sway
+      // around facing the camera instead: same "alive in the water" read, but
+      // the thing you came to look at never turns away.
+      if (o.isModel) o.mesh.rotation.y = o.yaw + Math.sin(t * 0.5 + o.phase) * 0.35;
+      else o.mesh.rotation.y += dt * 0.15;
       anyHover = anyHover || o.hover > 0.5;
 
       _proj.copy(o.mesh.position).project(camera);
@@ -2073,10 +2199,12 @@ export function createAquarium(container, opts = {}) {
     // creatures' "in the spotlight" dim curve rather than the environment's
     for (const group of Object.values(orbGroups)) {
       for (const o of group.orbs) {
-        o.mat.uniforms.uFogColor.value.copy(_envColor);
-        o.mat.uniforms.uDim.value = creatureDim;
-        o.mat.uniforms.uSpot.value = controls.stageLight;
-        o.mat.uniforms.uFogDensity.value = FOG_DENSITY * 0.55 * fogScale;
+        for (const mat of o.mats) {
+          mat.uniforms.uFogColor.value.copy(_envColor);
+          mat.uniforms.uDim.value = creatureDim;
+          mat.uniforms.uSpot.value = controls.stageLight;
+          mat.uniforms.uFogDensity.value = FOG_DENSITY * 0.55 * fogScale;
+        }
       }
     }
     hemi.intensity = BASE_LIGHT_INTENSITY.hemi * envDim;
@@ -2256,7 +2384,7 @@ export function createAquarium(container, opts = {}) {
    *   anchors: object,    // live screen-px anchor above each creature's head (for DOM bubbles)
    *   whenReady: (cb: () => void) => void, // fires once fish + both creatures have loaded
    *   burstFromBottom: (total?: number, duration?: number) => void, // entry bubble wave
-   *   setOrbs: (group: 'work'|'social', list: {id,color}[]) => void,
+   *   setOrbs: (group: 'work'|'social', list: {id,color,model?}[]) => void,
    *   setOrbOrder: (group: 'work'|'social', ids: string[]) => void,
    *   setOrbClickHandler: (group: 'work'|'social', fn: ((id: string) => void) | null) => void,
    *   setRippleRect: (rect: DOMRect | null) => void, // confine the cursor ripple to a panel
