@@ -131,6 +131,53 @@
       ]
     },
     {
+      "id": "for-here-or-to-go",
+      "title": "For Here or To Go",
+      "status": "live",
+      "year": 2026,
+      "tagline": "Nobody was going to pack it for him.",
+      "oneLiner": "An AI short film, shot photoreal, in which the gutted fish packs its own organs.",
+      "summary": "Eighty seconds, no dialogue. A person nets a fish, stuns it, scales it, opens it, and leaves the kitchen to answer the door. The fish sits up, pulls a plastic bag from the second drawer, packs its organs one by one, knots the bag with a fin, and goes. When the person comes back there are scales and a puddle.",
+      "tags": {
+        "type": [
+          "Video"
+        ],
+        "display": [
+          "AI",
+          "Flick",
+          "Seedance",
+          "Live"
+        ]
+      },
+      "cta": "Take it to go",
+      "links": {
+        "video": "https://youtu.be/91xQRoRF3oU"
+      },
+      "sections": {
+        "concept": [
+          "Every cooking video ends when the fish is prepped. This one runs forty seconds longer.",
+          "A fish is cleaned, gutted, and left alone on the counter. Nobody was going to pack it for him."
+        ],
+        "design": [
+          "Nothing is stylised. A real kitchen — crowded spice shelves, mismatched bottles, a stained marble board, tungsten light, film grain, blown highlights. The organs are organs.",
+          "An animated fish standing up is a drawing. This one is a fish.",
+          "The kill happens off frame, on a wall clock. Shot 12 holds the same camera as shot 11 and does not move: three seconds of empty kitchen, then the eye opens."
+        ],
+        "technical": [
+          "Written first as a 22-shot list, then generated. Every shot went into Flick as text — no keyframes drawn, no plates shot. Continuity is held by a style reference alone: the crowded spice shelves, the stained marble board, tungsten light, film grain recur because the reference does, not because a set exists.",
+          "Video generation runs on Seedance. Shots are generated in scene order rather than edit order — everything on the cutting board together, everything at the door together — the way a crew shoots out of sequence."
+        ]
+      },
+      "stack": [
+        "Flick",
+        "Seedance"
+      ],
+      "awards": null,
+      "submissions": null,
+      "credits": "Made by Crèche Tank, 2026.",
+      "notes": "Self-initiated — no brief field. Crèche Tank is a creative partner of Flick; the relationship is not a commission and is not recorded as one. An early treatment had the organs as pink and apricot geometric blocks in flat 2D; the finished film is photoreal and that version is superseded. awards and submissions unconfirmed. The film URL is authored under links.video (not links.site) because a Video project embeds links.video and never renders a CTA — see ProjectPanel."
+    },
+    {
       "id": "santa-beer",
       "title": "Santa Beer",
       "status": "live",

@@ -174,7 +174,10 @@ canvas {
 .about-inner {
   width: min(34vw, 520px);
   text-align: left;
-  will-change: transform, opacity;
+  /* `filter` is in here because the entrance pulls the block from blurred into
+     focus (see Section.jsx) — without it the first frame of the blur causes a
+     visible re-raster of the whole copy block */
+  will-change: transform, opacity, filter;
 }
 .about-title {
   margin: 0 0 0.1em; /* the copy tucks up close under the title */
@@ -1001,6 +1004,109 @@ body.bright-stage .wordmark {
   color: var(--c-red);
   text-shadow: 0 1px 12px rgba(255, 255, 255, 0.55);
 }
+/* ---------- home section: dive / interaction hint ----------
+   Bottom-centre, in the clear gap between the two creatures' chat stacks (they
+   sit at sx .36/.64 on `main`) and above the corner text. Mounted by Stage,
+   shown only on `main` and only until the visitor first leaves it. */
+.dive-hint {
+  position: fixed;
+  left: 50%;
+  bottom: 20px;
+  transform: translateX(-50%);
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  padding: 8px 14px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: #e7f6f2;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  opacity: 0.62;
+  transition: opacity 0.7s ease;
+  user-select: none;
+}
+.dive-hint:hover {
+  opacity: 1;
+}
+/* hidden but still mounted: the caption keeps its place so returning to `main`
+   mid-session (before the first departure) doesn't restart it mid-word */
+.dive-hint.is-out {
+  opacity: 0;
+  pointer-events: none;
+}
+.dive-hint-label {
+  display: block;
+  white-space: nowrap;
+  animation: diveHintLabel 0.55s ease both;
+}
+@keyframes diveHintLabel {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.dive-hint-chev {
+  width: 16px;
+  height: 9px;
+  overflow: visible;
+  animation: diveHintChev 2.4s ease-in-out infinite;
+}
+/* sinks, fades out at the bottom, and reappears at the top — the descent the
+   caption is describing */
+@keyframes diveHintChev {
+  0% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  25% {
+    opacity: 1;
+  }
+  70% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+/* pale water on the last section — but the hint only ever shows on `main`, so
+   this is just belt-and-braces with the rest of the chrome */
+body.bright-stage .dive-hint {
+  color: #23474f;
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.6);
+}
+@media (max-width: 768px) {
+  /* Clear of the corner text, which wraps to two lines on a phone — but that
+     band is also where the octopus stands, and a tappable button there ate the
+     taps meant for it. On a phone the hint is a label only: you advance by
+     swiping, so it gives up its click target rather than block a poke. */
+  .dive-hint {
+    bottom: 11vh;
+    pointer-events: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .dive-hint-label {
+    animation: none;
+  }
+  .dive-hint-chev {
+    animation: none;
+    opacity: 0.8;
+  }
+}
+
 .hint {
   position: fixed;
   left: 50%;
@@ -1116,6 +1222,10 @@ body.bright-stage .wordmark {
   font-size: clamp(34px, 11vw, 150px);
   letter-spacing: 0.05em;
   line-height: 0.9;
+  /* No glow behind the wordmark — at this size the shadow .loader-brand sets
+     for the small text below reads as a smudge around the letters rather than
+     as depth. The status line and Enter button keep theirs. */
+  text-shadow: none;
 }
 .loader-status {
   display: inline-flex;
@@ -1153,28 +1263,20 @@ body.bright-stage .wordmark {
   cursor: pointer;
   -webkit-backdrop-filter: blur(6px);
   backdrop-filter: blur(6px);
-  transition: background 0.25s ease, border-color 0.25s ease, transform 0.25s ease;
-  animation: loader-enter-in 0.5s ease both;
+  /* `transform` is deliberately NOT transitioned here, and there is no CSS
+     entrance keyframe: GSAP owns this element's transform (the magnetic
+     cursor-follow + entrance in Loader.jsx), and a CSS transition on the same
+     property would fight a 0.25s ease into every single mousemove. */
+  transition: background 0.25s ease, border-color 0.25s ease, color 0.25s ease;
 }
+/* Same hover language as the case-study CTA (.panel-cta): the pill fills with
+   brand red and the label flips to cream. At rest it stays the pale outline the
+   loader needs to read against light water. */
 .loader-enter:hover,
 .loader-enter:focus-visible {
-  background: rgba(244, 251, 249, 0.22);
-  border-color: rgba(244, 251, 249, 0.9);
-  transform: translateY(-1px);
-}
-.loader-enter:active {
-  transform: translateY(0);
-}
-
-@keyframes loader-enter-in {
-  from {
-    opacity: 0;
-    transform: translateY(6px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  background: var(--c-red);
+  border-color: var(--c-red);
+  color: var(--c-cream);
 }
 
 @media (prefers-reduced-motion: reduce) {

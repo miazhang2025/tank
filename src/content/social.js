@@ -20,7 +20,7 @@ export const SOCIAL = [
   {
     id: 'rednote',
     label: 'RED',
-    href: '', // TODO — 小红书
+    href: 'https://xhslink.cn/m/2VWKbrKdvr3',
     color: '#E8511E',
   },
   {
@@ -32,7 +32,7 @@ export const SOCIAL = [
   {
     id: 'arena',
     label: 'Are.na',
-    href: '', // TODO
+    href: 'https://www.are.na/creche-tank/channels',
     color: '#4FA39F',
   },
   {

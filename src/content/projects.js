@@ -62,6 +62,10 @@ const LEGACY_PREVIEWS = {
 const ORB_MODELS = {
   flaneur: { url: '/project%20UI/flaneur.glb', yaw: Math.PI },
   'cassette-jury': { url: '/project%20UI/jury.glb', yaw: Math.PI },
+  // π puts the fish side-on with its eye toward the camera and its head turned
+  // into the composition (the label sits to its left). At 0 it presents its
+  // tail — an anonymous blob with no face on it.
+  'for-here-or-to-go': { url: '/project%20UI/fish.glb', yaw: Math.PI },
   'santa-beer': { url: '/project%20UI/santa.glb', yaw: Math.PI },
   eureka: { url: '/project%20UI/eureka.glb', yaw: Math.PI },
   // the one export that already faces the camera — the π the others need turns

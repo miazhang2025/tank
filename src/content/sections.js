@@ -103,6 +103,22 @@ export const SECTIONS = [
   },
 ];
 
+/**
+ * One-off reactions when a visitor pokes a creature on the HOME section.
+ * A line is picked at random per poke and revealed as the NEXT bubble in the
+ * `main` conversation stack (see Section.jsx's revealReaction) — so it reads as
+ * that creature breaking off mid-conversation to answer you, then drifting up
+ * and out of the stack like any other line.
+ *
+ * Same voices as above: the axolotl soft and unbothered, the octopus flat and
+ * put-upon. Keep these DISTINCT from `main`'s scripted lines — a reaction that
+ * duplicates a line already on screen reads as a rendering glitch, not a reply.
+ */
+export const POKE_LINES = {
+  axolotl: ['oh.', 'hi.', 'that tickles.', "don't.", 'mm.', 'I felt that.', 'careful.'],
+  octopus: ['Excuse me.', 'Do not.', 'Noted.', 'I saw that.', 'Was that necessary.', 'Hm.', 'Again?'],
+};
+
 /** Brand wordmark shown top-left on every section. */
 export const WORDMARK = 'CRECHE';
 

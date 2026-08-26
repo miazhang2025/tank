@@ -1,7 +1,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { NOISE } from './shaders.js';
-import { STAGE, FOCUS_DIST } from './choreography.js';
+import { STAGE, STAGE_ORDER, FOCUS_DIST } from './choreography.js';
+import { playSfx } from './sfx.js';
 
 // The reference scene predates three.js colour management. Disable it so raw
 // THREE.Color uniform values stay the same byte-for-byte as r128 (the custom
@@ -23,6 +24,13 @@ const LOW_POWER =
   typeof window !== 'undefined' &&
   (window.matchMedia('(hover: none) and (pointer: coarse)').matches ||
     Math.min(window.screen?.width ?? 1e4, window.screen?.height ?? 1e4) <= 820);
+
+// Home-section interaction effects (knock shockwave, fish scatter) are motion
+// for motion's sake — skipped under reduced-motion; the informational parts
+// (bubbles, sounds, the poke reactions' single small wobble) stay.
+const REDUCE =
+  typeof window !== 'undefined' &&
+  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 
 /**
  * Build the underwater "tank study" scene inside `container`.
@@ -80,10 +88,12 @@ export function createAquarium(container, opts = {}) {
       octopus: { sx: STAGE.main.octopus.sx, sy: STAGE.main.octopus.sy, scale: 0.8, opacity: 1 },
     },
   };
-  // screen-space anchor (CSS px) above each creature's head — DOM bubbles read this each frame
+  // screen-space anchor (CSS px) above each creature's head — DOM bubbles read this each frame.
+  // cx/cy/r are the creature's BODY centre + on-screen radius (also CSS px),
+  // used by the home section's poke hit-test (orb-style distance check, no raycast).
   const anchors = {
-    axolotl: { x: 0, y: 0, visible: false },
-    octopus: { x: 0, y: 0, visible: false },
+    axolotl: { x: 0, y: 0, visible: false, cx: 0, cy: 0, r: 0 },
+    octopus: { x: 0, y: 0, visible: false, cx: 0, cy: 0, r: 0 },
   };
 
   // ---------- renderer / scene / camera ----------
@@ -488,7 +498,32 @@ export function createAquarium(container, opts = {}) {
   // it never renders in front of the axolotl / octopus (which sit at focusDist).
   const FISH_MIN_DEPTH_MARGIN = 0.8;
 
-  function updateFish(t) {
+  // knock reaction: fish near the strike point dart away — a per-fish flee
+  // offset that ramps in fast and decays, layered ON TOP of the untouched
+  // Lissajous path (the paths are pure functions of t, there's no velocity
+  // state to steer), so they glide back to formation as it fades. Costs
+  // nothing while no fish is scared.
+  const FLEE_DUR = 2.2; // seconds until a scared fish is fully back on-path
+  const FLEE_AMP = 2.4; // world units of dart at full fright
+  const FLEE_RADIUS = 5.0; // world-space reach of a knock
+  const _scare = new THREE.Vector3();
+  function scatterFish(worldPt) {
+    const tNow = clock.elapsedTime;
+    for (const g of fishGroups) {
+      for (const p of g.list) {
+        fishPos(p, tNow, _scare);
+        const dist = _scare.distanceTo(worldPt);
+        if (dist > FLEE_RADIUS) continue;
+        p.flee = (p.flee || new THREE.Vector3()).copy(_scare).sub(worldPt);
+        const len = p.flee.length();
+        // direction away from the knock, scaled by proximity (closer = harder dart)
+        p.flee.multiplyScalar(len > 1e-4 ? (1 - dist / FLEE_RADIUS) / len : 0);
+        p.fleeAge = 0;
+      }
+    }
+  }
+
+  function updateFish(t, dt) {
     camera.updateMatrixWorld(true);
     camera.getWorldDirection(_fishFwd);
     const minDepth = controls.focusDist + FISH_MIN_DEPTH_MARGIN;
@@ -499,6 +534,16 @@ export function createAquarium(container, opts = {}) {
         fishPos(p, t, _a);
         fishPos(p, t + 0.05, _b);
         _d.copy(_b).sub(_a);
+        if (p.fleeAge !== undefined && p.fleeAge < FLEE_DUR) {
+          p.fleeAge += dt;
+          const a = p.fleeAge;
+          const env = (1 - Math.exp(-a * 9)) * Math.exp(-a * 1.7);
+          _a.addScaledVector(p.flee, env * FLEE_AMP);
+          // fold the dart's own velocity into the heading sample (×0.05 = _b's
+          // lookahead step) so the fish faces where it is actually going
+          const denv = 9 * Math.exp(-a * 9) * Math.exp(-a * 1.7) - 1.7 * env;
+          _d.addScaledVector(p.flee, denv * FLEE_AMP * 0.05);
+        }
         if (_d.lengthSq() > 1e-6) {
           _d.normalize();
           _q.setFromUnitVectors(Z, _d);
@@ -756,14 +801,43 @@ export function createAquarium(container, opts = {}) {
       facePan: { value: 0, from: 0, target: 0, t: 0, dur: 1.1 },
       danceCycle: { dancing: true, timer: rand(3.5, 6) },
       hit: { active: false, t: 0, dur: 0.4, dirSign: 1 },
+      gazeYaw: 0, gazePitch: 0, // eased cursor-follow head turn (home section only)
     },
     octopus: {
       obj: null, inner: null, mats: [], norm: 1, size: new THREE.Vector3(1, 1, 1),
       base: new THREE.Vector3(), prev: new THREE.Vector3(),
       phase: 2.1, yaw: _oy, roll: 0, frontOffset: OCTOPUS_FRONT_OFFSET,
       mixer: null, idle: null, swim: null, swimBlend: 0,
+      // poke fallback when the Attack clip is busy: same procedural knockback
+      // the axolotl uses (the apply site handles any creature with a `hit`)
+      hit: { active: false, t: 0, dur: 0.4, dirSign: 1 },
+      gazeYaw: 0, gazePitch: 0,
     },
   };
+
+  // ---------- home-section interactivity state ----------
+  // Everything below only acts while `mainAmt` (eased in tick()) is high, so
+  // none of it can fire in — or fight with — about/work/more.
+  let mainAmt = 0;
+  // a knock (or any tap) makes both creatures glance at the pointer for a beat;
+  // t counts up, the envelope in updateCreatures shapes the pulse
+  const knockGlance = { t: 99 };
+  // one-shot Attack-clip poke reaction for the octopus. Drives the idle/swim
+  // weights itself while playing (like cassette-jury's attackFX, which it never
+  // overlaps: pokes only arm in `main`, attackFX only in the work section).
+  const octoPoke = { active: false, t: 0, dur: 0.8 };
+  let lastPokeAt = -9; // shared cooldown so rapid clicks don't machine-gun reactions
+
+  // Knock like you mean it and the tank lets you in: five knocks in QUICK
+  // succession dive straight to `more`, where "Knock on the glass" is the
+  // actual way to get in touch. This is a run, never a running total — each
+  // knock has to land within KNOCK_RUN_GAP of the one before it or the count
+  // starts over, so it reads as insistent knocking rather than as a tally that
+  // someone clicking idly around the tank could fill up by accident.
+  const KNOCK_RUN = 5; // knocks in one run before the tank answers
+  const KNOCK_RUN_GAP = 1.2; // seconds between knocks; a longer pause resets the run
+  let knockRun = 0;
+  let lastKnockAt = -99;
 
   // ---------- Cassette Jury only: octopus randomly turns + strikes the axolotl ----------
   // v2: triggered by the SELECTED PROJECT in the work lineup (controls.activeProject),
@@ -896,6 +970,7 @@ export function createAquarium(container, opts = {}) {
     camera.getWorldDirection(_cfwd); // view axis: creatures get pushed back along it
     const k = Math.min(1, dt * 6); // smoothing toward target anchor (swim)
     stepAttackFX(dt);
+    knockGlance.t += dt;
     for (const id of ['axolotl', 'octopus']) {
       const st = creatureState[id];
       if (st.mixer) st.mixer.update(dt);
@@ -926,6 +1001,24 @@ export function createAquarium(container, opts = {}) {
       // fixed _ay/_oy yaw) so both creatures keep looking at the camera
       // through the camY dive/tilt too
       st.yaw = yawToFace(camera.position, st.base, st.frontOffset);
+      // ---- cursor gaze (home section only, via mainAmt) ----
+      // NDC delta between the pointer and this creature's screen spot, mapped
+      // to a small head turn (+yaw = face turns screen-right, same convention
+      // as AXOLOTL_FACE_CENTER_YAW). `hasPointer` never arms on touch, but a
+      // knock's glance pulse drives the same channel — so a tap still gets the
+      // look-at beat, and the glance briefly overrides the subtle base follow.
+      {
+        const aPix = anchors[id];
+        const ndcX = (aPix.cx / window.innerWidth) * 2 - 1;
+        const ndcY = -((aPix.cy / window.innerHeight) * 2 - 1);
+        const glanceEnv = knockGlance.t < 1.2 ? Math.sin((knockGlance.t / 1.2) * Math.PI) : 0;
+        const gazeW = mainAmt * Math.max(hasPointer ? 1 : 0, glanceEnv * 1.5);
+        const gYawT = THREE.MathUtils.clamp((pointer.x - ndcX) * 0.55, -0.38, 0.38) * gazeW;
+        const gPitchT = THREE.MathUtils.clamp(-(pointer.y - ndcY) * 0.3, -0.16, 0.22) * gazeW;
+        const gk = Math.min(1, dt * (glanceEnv > 0.05 ? 10 : 5)); // glances snap, idle follow drifts
+        st.gazeYaw += (gYawT - st.gazeYaw) * gk;
+        st.gazePitch += (gPitchT - st.gazePitch) * gk;
+      }
       // idle ↔ swim crossfade by how fast it's travelling on screen
       const speed = st.prev.distanceTo(st.base) / Math.max(dt, 1e-3);
       const target = speed > 0.5 ? 1 : 0;
@@ -962,21 +1055,42 @@ export function createAquarium(container, opts = {}) {
         pan.t += dt;
         pan.value = pan.from + (pan.target - pan.from) * easeInOut(Math.min(1, pan.t / pan.dur));
       }
-      // during the cassette-jury attack sequence, stepAttackFX drives the
-      // octopus's idle/swim weights directly — don't fight it with the
-      // movement-based blend above
-      if (st.idle && st.swim && !(id === 'octopus' && attackFX.phase !== 'idle')) {
+      // one-shot Attack-clip poke reaction: ramp the clip in fast, hand the
+      // weights back to the movement blend as it ends (mirrors attackFX's
+      // striking fade, minus the turn toward the axolotl)
+      if (id === 'octopus' && octoPoke.active && st.swim && st.idle) {
+        octoPoke.t += dt;
+        const inW = Math.min(1, octoPoke.t / 0.15);
+        const outW =
+          octoPoke.t > octoPoke.dur - 0.25 ? Math.max(0, (octoPoke.dur - octoPoke.t) / 0.25) : 1;
+        st.swim.setEffectiveWeight(inW * outW);
+        st.idle.setEffectiveWeight(1 - inW * outW);
+        if (octoPoke.t >= octoPoke.dur) {
+          octoPoke.active = false;
+          st.swim.setLoop(THREE.LoopRepeat, Infinity);
+          st.swim.clampWhenFinished = false;
+        }
+      }
+      // during the cassette-jury attack sequence (or a poke one-shot), the
+      // octopus's idle/swim weights are driven directly — don't fight them
+      // with the movement-based blend above
+      if (
+        st.idle &&
+        st.swim &&
+        !(id === 'octopus' && (attackFX.phase !== 'idle' || octoPoke.active))
+      ) {
         const dance = id === 'axolotl' ? st.danceBlend : 0;
         st.swim.setEffectiveWeight(st.swimBlend * (1 - dance));
         st.idle.setEffectiveWeight((1 - st.swimBlend) * (1 - dance));
         if (st.dance) st.dance.setEffectiveWeight(dance);
       }
       const bob = Math.sin(t * 1.1 + st.phase) * 0.04;
-      // the axolotl has no reaction clip, so a hit is a small procedural
-      // knockback + wobble decaying over st.hit.dur
+      // procedural reaction knockback + wobble decaying over st.hit.dur —
+      // the axolotl's only reaction, and the octopus's fallback when its
+      // Attack clip is already busy
       let hitX = 0,
         hitRoll = 0;
-      if (id === 'axolotl' && st.hit.active) {
+      if (st.hit && st.hit.active) {
         st.hit.t += dt;
         const hp = Math.min(1, st.hit.t / st.hit.dur);
         const decay = 1 - hp;
@@ -989,7 +1103,12 @@ export function createAquarium(container, opts = {}) {
       st.obj.rotation.z = st.roll + hitRoll; // screen-z flip (+ hit wobble)
       const yawNow = id === 'octopus' && attackFX.phase !== 'idle' ? attackFX.currentYaw : st.yaw;
       const centerYaw = id === 'axolotl' ? AXOLOTL_FACE_CENTER_YAW * st.facePan.value : 0;
-      if (st.inner) st.inner.rotation.set(0, yawNow + centerYaw + Math.sin(t * 0.6 + st.phase) * 0.1, 0);
+      if (st.inner)
+        st.inner.rotation.set(
+          st.gazePitch,
+          yawNow + centerYaw + st.gazeYaw + Math.sin(t * 0.6 + st.phase) * 0.1,
+          0,
+        );
       for (const m of st.mats) m.uniforms.uOpacity.value = cc.opacity;
       st.obj.visible = cc.opacity > 0.01;
       // screen anchor just above the head, for the DOM conversation bubbles
@@ -998,6 +1117,16 @@ export function createAquarium(container, opts = {}) {
       anchors[id].x = (_proj.x * 0.5 + 0.5) * window.innerWidth;
       anchors[id].y = (-_proj.y * 0.5 + 0.5) * window.innerHeight;
       anchors[id].visible = _proj.z < 1 && cc.opacity > 0.05;
+      // body centre + on-screen radius, for the home section's poke hit-test
+      _proj.copy(st.base).project(camera);
+      anchors[id].cx = (_proj.x * 0.5 + 0.5) * window.innerWidth;
+      anchors[id].cy = (-_proj.y * 0.5 + 0.5) * window.innerHeight;
+      const wsH = 2 * depth * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2));
+      // 0.38 of the model's normalised unit ≈ half the creature's visible body.
+      // Kept deliberately tight: in portrait the two of them stand almost
+      // shoulder to shoulder, and a generous disc on the axolotl swallowed the
+      // octopus entirely.
+      anchors[id].r = ((S * sizeComp * 0.38) / wsH) * window.innerHeight;
     }
   }
 
@@ -1248,12 +1377,90 @@ export function createAquarium(container, opts = {}) {
     if (t) onMove(t.clientX, t.clientY);
   };
   const onUISurface = (e) => !!(e.target && e.target.closest && e.target.closest('.ui-surface'));
+  // ---------- home-section tap routing: poke a creature, else knock the glass ----------
+  // Armed only while mainAmt is high, so none of it exists in about/work/more.
+  // burst() has already run (updating `pointer`/`pWorld`) when this is called.
+  function routeMainTap(x, y) {
+    if (mainAmt < 0.7) return;
+    const now = clock.elapsedTime;
+    // NEAREST hit wins, not the first in the list: the discs can still overlap
+    // slightly in portrait, and picking by list order would always hand an
+    // overlapping tap to the axolotl.
+    let best = null;
+    let bestD = Infinity;
+    for (const id of ['axolotl', 'octopus']) {
+      const a = anchors[id];
+      if (!a.visible || a.r <= 0) continue;
+      const d = Math.hypot(x - a.cx, y - a.cy);
+      if (d < a.r && d < bestD) {
+        bestD = d;
+        best = id;
+      }
+    }
+    if (best) {
+      if (now - lastPokeAt > 0.3) {
+        lastPokeAt = now;
+        pokeCreature(best, x);
+      }
+      return;
+    }
+    knockAt(x, y);
+  }
+
+  function knockAt(x, y) {
+    // ring shockwave on the final glass pass — skipped where the ripple family
+    // already is (LOW_POWER) and under reduced-motion; the quieter halves of
+    // the knock (glance, sound) always play
+    if (!LOW_POWER && !REDUCE) {
+      knockSlots[knockWrite].set(x / window.innerWidth, 1 - y / window.innerHeight, clock.elapsedTime);
+      knockWrite = (knockWrite + 1) % KNOCK_SLOTS;
+    }
+    if (!REDUCE) scatterFish(pWorld);
+    knockGlance.t = 0; // both creatures glance at the strike point
+    playSfx('knock', { volume: 0.45 });
+
+    const now = clock.elapsedTime;
+    knockRun = now - lastKnockAt < KNOCK_RUN_GAP ? knockRun + 1 : 1;
+    lastKnockAt = now;
+    if (knockRun >= KNOCK_RUN) {
+      knockRun = 0;
+      const moreIdx = STAGE_ORDER.indexOf('more');
+      if (moreIdx >= 0 && api.scrollToSection) api.scrollToSection(moreIdx);
+    }
+  }
+
+  function pokeCreature(id, x) {
+    const st = creatureState[id];
+    if (id === 'octopus' && st.swim && attackFX.phase === 'idle' && !octoPoke.active) {
+      // the rigged Attack clip as a one-shot "swat at the glass"
+      octoPoke.active = true;
+      octoPoke.t = 0;
+      st.swim.setLoop(THREE.LoopOnce, 1);
+      st.swim.clampWhenFinished = true;
+      st.swim.reset();
+      st.swim.play();
+      octoPoke.dur = (st.swim.getClip() && st.swim.getClip().duration) || 0.8;
+    } else if (st.hit) {
+      st.hit.active = true;
+      st.hit.t = 0;
+      st.hit.dirSign = x < anchors[id].cx ? 1 : -1; // knocked away from the click
+    }
+    knockGlance.t = 0; // the other creature turns to look at the commotion
+    playSfx('poke', { volume: 0.5 });
+    if (api.onPoke) api.onPoke(id); // React shows the one-off reaction line
+  }
+
   const onMouseDown = (e) => {
-    if (!onUISurface(e)) burst(e.clientX, e.clientY);
+    if (onUISurface(e)) return;
+    burst(e.clientX, e.clientY);
+    routeMainTap(e.clientX, e.clientY);
   };
   const onTouchStart = (e) => {
     const t = e.touches[0];
-    if (t && !onUISurface(e)) burst(t.clientX, t.clientY);
+    if (t && !onUISurface(e)) {
+      burst(t.clientX, t.clientY);
+      routeMainTap(t.clientX, t.clientY);
+    }
   };
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('touchmove', onTouchMove, { passive: true });
@@ -1948,6 +2155,12 @@ export function createAquarium(container, opts = {}) {
   const rippleTrail = new Array(RIPPLE_TRAIL).fill(null).map(() => new THREE.Vector3(0, 0, -1));
   let rippleWrite = 0;
   const _lastRipple = new THREE.Vector2(-9, -9);
+  // knock shockwave slots (home section): vec3 = (uv.x, uv.y, birth time),
+  // birth < 0 = empty. Round-robin so a drum-roll of knocks overlaps cleanly.
+  const KNOCK_SLOTS = 3;
+  const KNOCK_DUR = 1.5; // must match KN_DUR in the shader below
+  const knockSlots = new Array(KNOCK_SLOTS).fill(null).map(() => new THREE.Vector3(0, 0, -1));
+  let knockWrite = 0;
   const glassMat = new THREE.ShaderMaterial({
     uniforms: {
       tColor: { value: null },
@@ -1957,11 +2170,14 @@ export function createAquarium(container, opts = {}) {
       uRipRect: { value: new THREE.Vector4(0, 0, 0, 0) }, // panel bounds in uv (x0,y0,x1,y1)
       uRipTime: { value: 0 },
       uRipTrail: { value: rippleTrail }, // vec3(uvX, uvY, birth); birth < 0 = empty slot
+      uKnock: { value: knockSlots }, // knock rings, same encoding
+      uKnockOn: { value: 0 }, // 0/1 — lets the shader skip the ring loop entirely when idle
     },
     vertexShader: /* glsl */ `varying vec2 vUv; void main(){ vUv=uv; gl_Position=vec4(position.xy,0.0,1.0); }`,
     fragmentShader: /* glsl */ `
       precision highp float; varying vec2 vUv; uniform sampler2D tColor; uniform float uAspect,uMaxR;
       uniform float uRipOn, uRipTime; uniform vec4 uRipRect; uniform vec3 uRipTrail[${RIPPLE_TRAIL}];
+      uniform float uKnockOn; uniform vec3 uKnock[${KNOCK_SLOTS}];
       vec3 aces(vec3 x){ float a=2.51,b=0.03,c=2.43,d=0.59,e=0.14;
         return clamp((x*(a*x+b))/(x*(c*x+d)+e),0.0,1.0); }
 
@@ -2011,6 +2227,72 @@ export function createAquarium(container, opts = {}) {
         return vec3(o, crest * mask);
       }
 
+      // --- knock shockwave (home section) ---
+      // A tap on the glass sends one ring out from the strike point: a narrow
+      // gaussian band of refraction travelling outward, dying as it goes.
+      // uKnockOn is 0 whenever no ring is alive, so the idle cost is one
+      // uniform compare per pixel.
+      const float KN_DUR = ${KNOCK_DUR.toFixed(2)};
+      vec3 knockField(vec2 uv){
+        if (uKnockOn < 0.5) return vec3(0.0);
+        vec2 p = vec2(uv.x * uAspect, uv.y);
+        vec2 acc = vec2(0.0);
+        float crest = 0.0;
+        for (int i = 0; i < ${KNOCK_SLOTS}; i++){
+          vec3 s = uKnock[i];
+          float age = uRipTime - s.z;
+          if (s.z < 0.0 || age > KN_DUR) continue;
+          vec2 d = p - vec2(s.x * uAspect, s.y);
+          float dist = length(d);
+          float R0 = 0.03 + age * 0.34; // nominal (undeformed) radius, viewport-height units
+          // Cheap reject before the shaping below: no amount of wobble or push
+          // can drag the front this far, so most of the screen skips the work.
+          if (abs(dist - R0) > 0.16) continue;
+
+          // Not a perfect circle: a slow angular wobble, seeded off the knock's
+          // birth time so no two rings are shaped alike, and drifting as the
+          // ring expands so the outline keeps changing on its way out.
+          float ang = atan(d.y, d.x);
+          float seed = fract(s.z * 7.31) * 6.2831;
+          float R = R0
+            + sin(ang * 3.0 + seed + age * 1.7) * 0.014
+            + sin(ang * 5.0 - seed * 1.7 + age * 2.3) * 0.007;
+
+          // …and every other live ring drags on this one: where the pixel also
+          // sits near ANOTHER ring's front, this front is held back. Two knocks
+          // visibly dent each other instead of sliding through untouched.
+          for (int j = 0; j < ${KNOCK_SLOTS}; j++){
+            if (j == i) continue;
+            vec3 s2 = uKnock[j];
+            float age2 = uRipTime - s2.z;
+            if (s2.z < 0.0 || age2 > KN_DUR) continue;
+            float d2 = length(p - vec2(s2.x * uAspect, s2.y));
+            float R2 = 0.03 + age2 * 0.34;
+            R -= exp(-pow((d2 - R2) / 0.09, 2.0)) * 0.030 * (1.0 - age2 / KN_DUR);
+          }
+
+          float band = exp(-pow((dist - R) / 0.035, 2.0));
+          if (band < 0.004) continue;
+          // linear (not squared) falloff: the ring's own expansion already
+          // reads as dissipation, and squaring made it vanish in the first
+          // third of its life
+          float life = 1.0 - age / KN_DUR;
+          float wave = sin((dist - R) * 90.0);
+          vec2 dir = dist > 1e-5 ? d / dist : vec2(0.0);
+          acc += dir * wave * band * life;
+          crest += wave * band * life;
+        }
+        // INTENSITY KNOB 1/2 — how hard the ring bends the scene behind it.
+        // Pair it with the crest weight where knockField is composited below.
+        vec2 o = acc * 0.008;
+        o.x /= uAspect;
+        // The trough is the half that read badly: sin() goes negative on the
+        // far side of each crest, and SUBTRACTING light from pale teal water
+        // drew a hard black gash. Keep it — a wave with no trough looks like a
+        // decal — but at a quarter strength, so it reads as shading.
+        return vec3(o, max(crest, crest * 0.25));
+      }
+
       void main(){
         vec2 c = vUv-0.5; c.x*=uAspect;
         float r2=dot(c,c); float r=sqrt(r2);
@@ -2020,17 +2302,21 @@ export function createAquarium(container, opts = {}) {
         vec2 cd = c*(1.0+k);
         cd += sign(c)*(abs(c.x)*abs(c.y))*0.17*edge;
         vec3 rip = rippleField(vUv);
+        vec3 kn = knockField(vUv);
         vec2 duv = cd; duv.x/=uAspect; duv+=0.5;
-        duv += rip.xy;
+        duv += rip.xy + kn.xy;
         vec2 dir = (r>1e-4)? c/r : vec2(0.0);
         vec2 ca = dir; ca.x/=uAspect; ca*=(0.004+0.032*r2)*edge;
         float cr=texture2D(tColor, clamp(duv+ca,0.0,1.0)).r;
         float cg=texture2D(tColor, clamp(duv,    0.0,1.0)).g;
         float cb=texture2D(tColor, clamp(duv-ca,0.0,1.0)).b;
         vec3 col=vec3(cr,cg,cb);
-        // light on the wave crests — the half of the effect that survives being
-        // seen through a translucent cream panel
-        col += vec3(0.55, 0.70, 0.72) * rip.z * 0.42;
+        // Light on the wave crests — for the cursor ripple this is the half of
+        // the effect that survives being seen through a translucent cream panel.
+        // The knock's crest (INTENSITY KNOB 2/2) is kept well under the cursor
+        // ripple's: over open water there is nothing washing it out, and at
+        // parity it read as a hard white donut rather than a pulse in water.
+        col += vec3(0.55, 0.70, 0.72) * (rip.z * 0.42 + kn.z * 0.20);
         float rr=r/uMaxR;
         col += smoothstep(0.84,1.0,rr)*vec3(0.06,0.11,0.11);
         col *= mix(0.5,1.0,smoothstep(1.18,0.35,rr));
@@ -2100,6 +2386,14 @@ export function createAquarium(container, opts = {}) {
     raf = requestAnimationFrame(tick);
     const dt = Math.min(clock.getDelta(), 0.05);
     const t = clock.elapsedTime;
+
+    // Home-section interactivity gate: eased (same pattern as bigTitle.fade)
+    // so gaze/ripple fade out over the main→about cross-fade instead of
+    // cutting at the boundary; held at 0 until the intro camera drop settles
+    // so the loader's "Enter" click can't knock the glass.
+    const mainOn =
+      controls.activeSection === 'main' && !controls.diveActive && controls.introY < 0.05 ? 1 : 0;
+    mainAmt += (mainOn - mainAmt) * Math.min(1, dt * 6);
 
     // --- camera first: intro drop (top→bottom) + scroll-driven z + idle drift ---
     // creatures are placed relative to the camera, so it must be current.
@@ -2242,7 +2536,7 @@ export function createAquarium(container, opts = {}) {
     });
     dofMat.uniforms.uFocus.value = controls.focusDist;
 
-    updateFish(t);
+    updateFish(t, dt);
     updateCreatures(t, dt);
     updateBigTitle(dt);
     updateOrbs(t, dt);
@@ -2269,6 +2563,10 @@ export function createAquarium(container, opts = {}) {
       } else if (g.uRipOn.value < 0.01) {
         for (const s of rippleTrail) s.z = -1; // clear, so reopening starts calm
       }
+      // knock rings: flip the shader's early-out gate off as soon as none are alive
+      let anyKnock = 0;
+      for (const s of knockSlots) if (s.z >= 0 && t - s.z < KNOCK_DUR) anyKnock = 1;
+      g.uKnockOn.value = anyKnock;
     }
 
     // food flecks drift slowly down with lateral wobble
@@ -2389,9 +2687,10 @@ export function createAquarium(container, opts = {}) {
    *   setOrbClickHandler: (group: 'work'|'social', fn: ((id: string) => void) | null) => void,
    *   setRippleRect: (rect: DOMRect | null) => void, // confine the cursor ripple to a panel
    *   orbAnchors: object, // id -> live screen-px anchor of each orb (for DOM labels)
+   *   onPoke: ((id: 'axolotl'|'octopus') => void) | null, // assign to hear home-section pokes (reaction bubble)
    * }}
    */
-  return {
+  const api = {
     dispose,
     renderer,
     controls,
@@ -2403,5 +2702,7 @@ export function createAquarium(container, opts = {}) {
     setOrbClickHandler,
     setRippleRect,
     orbAnchors,
+    onPoke: null,
   };
+  return api;
 }

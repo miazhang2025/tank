@@ -212,6 +212,106 @@ pattern, extended to the other 3 surfaces as `::before` base glass + `::after` S
 - Verified with Playwright on desktop (1440×900) + mobile (375×812): open/close,
   re-entry reset, per-section drop replay, no console errors.
 
+### Phase 8 — home-section interactivity (main only, gated by `mainAmt`)
+All effects are gated by a scene-side eased factor `mainAmt` (0..1, follows
+`activeSection === 'main' && !diveActive && intro settled`, same easing pattern as
+`bigTitle.fade`) so they fade out smoothly on the main→about cross-fade and can
+never fire in later sections. Idle cost of every new effect is zero; no new render
+passes / targets / per-frame raycasts.
+
+- [x] 8.0 `mainAmt` factor + click routing in `createAquarium.js`
+      (priority: nearest creature poke → knock glass; `.ui-surface` guard + orb handlers
+      untouched). Also gated on `introY < 0.05` so the loader's Enter click can't knock.
+- [x] 8.1 **Gaze follow** — creatures subtly turn head (yaw + slight pitch) toward the
+      cursor; reuses the per-frame `yawToFace` + `inner.rotation`; `hasPointer` guard
+      skips it on touch. Knock triggers a stronger 1.2s "glance" pulse (works on tap too).
+- [~] 8.2 **Big-title water ripple** — built, then **cut** (design call): the rect-masked
+      cursor ripple stays exclusive to the case-study panel, as it was.
+- [x] 8.3 **Knock on the glass** — click empty water: expanding ring shockwave in the
+      glass composite shader (3 round-robin slots, `uKnockOn` early-out when idle), fish
+      within radius scatter (per-fish decaying flee offset on their Lissajous paths), both
+      creatures glance at the point, thunk SFX. Tuned: 1.5s life, linear falloff,
+      refraction 0.014 / crest 0.55.
+- [x] 8.3b **"Let me in" easter egg** — five knocks in QUICK succession (each within 1.2s
+      of the one before, or the count starts over) dives straight to `more`, where "Knock
+      on the glass" is the actual way to get in touch. A run, never a running total: idly
+      clicking around the tank can't fill up a tally. Undocumented on purpose — finding it
+      is the point.
+- [x] 8.4 **Poke the creatures** — screen-space hit test against the live anchors
+      (orb-style, no raycast; radius = 0.38 of the model unit, NEAREST disc wins so the
+      portrait overlap resolves correctly). Axolotl: existing procedural knockback/wobble
+      (`st.hit`). Octopus: one-shot rigged Attack clip (procedural `hit` fallback when the
+      clip is busy); never fights the cassette-jury `attackFX` state machine.
+- [x] 8.5 **Reaction line — folded INTO the conversation.** A poke makes the next bubble
+      to pop the poked creature's reaction, in its normal place in the stack, instead of a
+      separate floating bubble (the earlier `PokeReaction.jsx` is deleted). Each column
+      carries two extra reaction slots (`data-reaction`, `data-gi` 900/901) — a real
+      bubble for that column's speaker, an invisible twin for the other — so a reaction
+      lands in the shared two-column timeline exactly like a scripted turn. Reveal/retire
+      is the shared `enterAtBottom` helper; a pending poke shortens the next beat to
+      ≤0.4s so the answer feels immediate; the first-fill test moved from `shown` to `seq`
+      so an injected line can't cut the scripted conversation short; a reaction retires
+      for good when it reaches the top rather than rejoining the loop. Lines in
+      `POKE_LINES` (sections.js), no immediate repeats, kept distinct from main's script.
+- [x] 8.6 **Dive hint indicator** (`DiveHint.jsx`) — bottom-centre mono caption cycling
+      "scroll to dive / knock on the glass / poke a creature" (touch: swipe/tap wording)
+      over a sinking chevron; appears once the intro settles, only on main, dismissed for
+      the session once the visitor first leaves main. Click = dive to the next section;
+      carries `ui-surface` so that click isn't also read as a knock. Portrait makes it
+      `pointer-events: none` — it sits over the octopus there and was eating its taps.
+      `prefers-reduced-motion` = static.
+- [x] 8.7 **SFX plumbing** (`src/scene/sfx.js`) — lazy WebAudio helper; plays
+      `public/sounds/knock.(mp3|wav)` and `poke.(mp3|wav)` if present, silently no-ops if
+      missing. Both are primed on the loader's Enter click (a real gesture, so the
+      AudioContext starts unsuspended and the first knock is already audible).
+      **→ drop your sound files into `public/sounds/` (see its README).**
+- [x] 8.V Verified with Playwright, desktop 1440×900 + portrait 390×844: gaze, title
+      knock (ring geometry confirmed by a frozen-amplitude capture), both pokes + their
+      reaction lines landing in the conversation stacks, the conversation continuing past
+      them, the five-knock dive to `more` firing on the 5th and NOT firing for four quick
+      knocks or for knocks spaced past the run window, hint copy/dismissal,
+      nothing firing in about/work/more,
+      work + more sections unchanged, no console errors.
+
+---
+
+## Revisions — round 4 (polish pass)
+- **Loader readout reaches 100%.** The water still holds at `BRIM` (0.97) so its wavy
+  surface stays on screen — at a true 1.0 the crests are pushed past the top edge and the
+  tank reads as a flat block — but the readout is now scaled against `BRIM`, so `ready`
+  (which genuinely means loaded) shows "ready 100%" instead of parking on a puzzling 97%.
+- **Loader wordmark de-glowed.** `.loader-word` gets `text-shadow: none`; at 150px the
+  glow `.loader-brand` sets for the small text read as a smudge around the letters. The
+  status line and Enter button keep theirs.
+- **About copy surfaces through the water.** The plain-copy block now enters blurred and
+  low, pulling into focus over ~1.15s, instead of sliding down like a section heading —
+  it settles onto the focal plane the way everything else in the tank does. The filter is
+  cleared on completion so a parked section isn't holding a compositor layer.
+- **`more` links completed** — Are.na and RED (小红书) filled in; all five social orbs live.
+
+## Revisions — round 5
+- **Loader's Enter button matches the case-study CTA.** Same hover language as `.panel-cta`
+  (fills with `--c-red`, label flips to `--c-cream`) and the same magnetic cursor-follow
+  (`gsap.quickTo`, STRENGTH 0.4, scale 1.06, elastic spring back) the CTA and content-cloud
+  button already use. It keeps its pale outline at rest — the loader sits on light water,
+  where the CTA's dark-ink resting state would disappear. GSAP now owns the element's
+  transform outright, so the CSS `transform` transition and the `loader-enter-in` keyframe
+  were removed (either would have fought a 0.25s ease into every mousemove) and the
+  entrance is a tween instead.
+- **About copy resolves character by character, in random order.** `splitChars` wraps each
+  character in a `.about-ch` span (spaces stay plain text, so wrapping is unchanged — an
+  inline span introduces no break opportunity), and the entrance staggers their opacity
+  with `from: 'random'`. `amount: 0.9` rather than `each:` so editing the copy can't
+  silently stretch the entrance to several seconds. The block still carries the rise +
+  focus-pull; only opacity animates per character, so nothing reflows.
+- **Focus pull retimed so it's actually visible.** The blur was being spent before there
+  was any text to blur: an out-ease drops most of its distance in the first fifth of the
+  tween, so at 12px/0.85s/`power3.out` the copy was sharp before the characters had
+  finished arriving. Now 18px over 1.3s on `power2.inOut`, which holds it soft through the
+  middle and lands after the reveal — measured at 10px blur with 106/106 characters
+  already on screen, where the old curve was at 0. `y` is a separate tween (1s,
+  `power3.out`) so the position still settles early.
+
 ## E. How to feed in your content (after framework)
 - **Dialogue / copy:** edit `src/content/sections.js` (each section's `chat[]`, `content.heading/body/button`). Width is fixed, height auto — just write text.
 - **Models:** drop GLBs in `public/models/` (current: `axolotl.glb`, `octopus.glb`, fish `red.glb` + `white fish.glb`). Creature front-facing yaws live in `createAquarium.js` (axolotl π/4, octopus 3π/4) — re-tune via `?ay=&oy=` if you swap models.

@@ -3,6 +3,30 @@ import gsap from 'gsap';
 import ContentCloud from './ContentCloud.jsx';
 import Work from './Work.jsx';
 import SocialOrbs from './SocialOrbs.jsx';
+import { POKE_LINES } from '../content/sections.js';
+
+// data-gi for the two poke-reaction slots. Parked far above any scripted slot
+// so they sort last in their column and can never be picked by the scripted
+// reveal (which only ever asks for `seq % chat.length`).
+const REACTION_GI = { axolotl: 900, octopus: 901 };
+
+/**
+ * One span per character, so the about copy can resolve character by character
+ * (see the entrance effect). Spaces are left as plain text nodes on purpose:
+ * a line only breaks at whitespace and an inline span introduces no break
+ * opportunity of its own, so the copy still wraps exactly as the unsplit text
+ * did — no inline-block, no change to the text metrics.
+ */
+const splitChars = (text) =>
+  [...text].map((c, i) =>
+    c === ' ' ? (
+      ' '
+    ) : (
+      <span className="about-ch" key={i}>
+        {c}
+      </span>
+    ),
+  );
 
 const REDUCE =
   typeof window !== 'undefined' &&
@@ -42,23 +66,6 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
   const titleRef = useRef(null);
   const revealedRef = useRef(0);
 
-  // section title fades + slides in on arrival, out on departure — same
-  // entrance language as the content cloud (fromTo opacity/offset).
-  useEffect(() => {
-    const el = titleRef.current;
-    if (!el) return undefined;
-    gsap.killTweensOf(el);
-    if (isActive) {
-      gsap.fromTo(
-        el,
-        { opacity: 0, y: -22 },
-        { opacity: 1, y: 0, duration: REDUCE ? 0.4 : 0.9, ease: 'power3.out', delay: REDUCE ? 0 : 0.1 },
-      );
-    } else {
-      gsap.to(el, { opacity: 0, y: -14, duration: 0.35, ease: 'power2.in' });
-    }
-  }, [isActive]);
-
   const chat = data.chat || [];
   // `content.plain` renders the copy as a bare left-aligned block (title +
   // paragraphs, no frosted cloud around it) — see .about-block in index.css.
@@ -67,6 +74,89 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
   const desktopChat = !mobile;
   const mobileChat = mobile && !hasCloud;
   const showCloud = hasCloud;
+
+  // Entrance for the section heading / plain copy block.
+  //
+  // A section TITLE slides down into place — same entrance language as the
+  // content cloud (fromTo opacity/offset).
+  //
+  // The PLAIN COPY block (about) instead surfaces through the water: the whole
+  // block rises and pulls from blurred into focus, while its characters resolve
+  // one at a time in RANDOM order (see splitChars below) — like text coming up
+  // out of the murk rather than being typed left to right.
+  useEffect(() => {
+    const el = titleRef.current;
+    if (!el) return undefined;
+    const chars = plainCopy ? el.querySelectorAll('.about-ch') : [];
+    gsap.killTweensOf(el);
+    if (chars.length) gsap.killTweensOf(chars);
+
+    if (!isActive) {
+      // leave on the block as a whole — retiring 150 characters individually
+      // would cost more than it reads
+      gsap.to(el, {
+        opacity: 0,
+        y: plainCopy ? 10 : -14,
+        ...(plainCopy ? { filter: 'blur(10px)' } : null),
+        duration: 0.35,
+        ease: 'power2.in',
+      });
+      return undefined;
+    }
+
+    if (!plainCopy) {
+      gsap.fromTo(
+        el,
+        { opacity: 0, y: -22 },
+        { opacity: 1, y: 0, duration: REDUCE ? 0.4 : 0.9, ease: 'power3.out', delay: REDUCE ? 0 : 0.1 },
+      );
+      return undefined;
+    }
+
+    if (REDUCE || !chars.length) {
+      gsap.fromTo(el, { opacity: 0, y: 10 }, { opacity: 1, y: 0, duration: 0.4, ease: 'power2.out' });
+      return undefined;
+    }
+
+    // The block carries the rise + focus-pull; the characters carry the reveal.
+    // The two are timed to OVERLAP: the focus pull has to still be running while
+    // the characters are arriving, or the blur is spent on an empty box and
+    // reads as nothing (the reveal is what puts ink on screen to be blurred).
+    gsap.set(el, { opacity: 1 });
+    gsap.fromTo(el, { y: 22 }, { y: 0, duration: 1, ease: 'power3.out', delay: 0.1 });
+    gsap.fromTo(
+      el,
+      { filter: 'blur(18px)' },
+      {
+        filter: 'blur(0px)',
+        // power2.inOut, not the usual out-ease: an out-ease spends most of the
+        // blur in the first fifth of its duration, so the copy is sharp before
+        // the eye has caught up. This holds it soft through the middle — still
+        // ~8px blurred halfway — and lands late.
+        duration: 1.3,
+        ease: 'power2.inOut',
+        delay: 0.1,
+        // a filter left on the element pins it to its own compositor layer for
+        // as long as the section is parked; drop it once the copy has landed
+        onComplete: () => gsap.set(el, { clearProps: 'filter' }),
+      },
+    );
+    gsap.fromTo(
+      chars,
+      { opacity: 0 },
+      {
+        opacity: 1,
+        duration: 0.4,
+        ease: 'power2.out',
+        delay: 0.1,
+        // `amount` (total spread) rather than `each` (per-character): the copy
+        // is editable, and with `each` a longer paragraph would silently
+        // stretch the entrance out to several seconds.
+        stagger: { amount: 0.9, from: 'random' },
+      },
+    );
+    return undefined;
+  }, [isActive, plainCopy]);
 
   // unified loop while near-active: follow the creatures (desktop) + reveal
   // bubbles one-by-one, bottom-up, as scroll progress approaches this section.
@@ -114,55 +204,85 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
     const visible = colEls.map(() => []);
     let seq = 0; // next content slot to reveal = seq % m
 
-    // reveal the next slot in sequence: un-hide it at the bottom, then slide
-    // the already-shown ones up by its height (a real message arriving).
+    // Bring `el` in at the BOTTOM of column `ci`: move it to the end of the DOM
+    // (after a wrap-around, DOM order no longer matches the visual order), let
+    // it take layout, then slide the already-shown bubbles up by its height and
+    // pop it in — a real message arriving.
+    const enterAtBottom = (el, ci) => {
+      el.parentNode.appendChild(el);
+      const older = visible[ci].slice();
+      el.style.display = '';
+      const delta = el.offsetHeight + GAP; // final layout height of the new slot
+      if (older.length) {
+        // they jumped up by `delta` when the slot entered layout; slide from
+        // their old spot (y:delta) back to 0 so the lift is smooth.
+        gsap.fromTo(
+          older,
+          { y: delta },
+          {
+            y: 0,
+            duration: REDUCE ? 0.25 : 0.55,
+            ease: 'power3.out',
+            overwrite: 'auto',
+            // drop the leftover inline transform once settled: keeping it (even
+            // at an identity offset) pins the bubble to its own GPU layer, which
+            // makes Chromium render the text with grayscale AA instead of the
+            // normal subpixel AA — it reads lighter/thinner until deselected.
+            onComplete: () => older.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
+          },
+        );
+      }
+      if (!el.classList.contains('spacer')) {
+        gsap.fromTo(
+          el,
+          { opacity: 0, scaleX: 0.85, scaleY: 0, transformOrigin: 'center bottom' },
+          {
+            opacity: 1,
+            scaleX: 1,
+            scaleY: 1,
+            duration: REDUCE ? 0.3 : 0.55,
+            ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
+            overwrite: 'auto',
+            onComplete: () => gsap.set(el, { clearProps: 'transform' }),
+          },
+        );
+      } else {
+        el.style.opacity = '';
+      }
+      visible[ci].push(el);
+    };
+
+    // reveal the next slot in the scripted sequence
     const revealNewest = () => {
       const gi = seq % m;
       colEls.forEach((els, ci) => {
         const el = els.find((e) => Number(e.dataset.gi) === gi);
-        if (!el) return;
-        const older = visible[ci].slice();
-        el.style.display = '';
-        const delta = el.offsetHeight + GAP; // final layout height of the new slot
-        if (older.length) {
-          // they jumped up by `delta` when the slot entered layout; slide from
-          // their old spot (y:delta) back to 0 so the lift is smooth.
-          gsap.fromTo(
-            older,
-            { y: delta },
-            {
-              y: 0,
-              duration: REDUCE ? 0.25 : 0.55,
-              ease: 'power3.out',
-              overwrite: 'auto',
-              // drop the leftover inline transform once settled: keeping it (even
-              // at an identity offset) pins the bubble to its own GPU layer, which
-              // makes Chromium render the text with grayscale AA instead of the
-              // normal subpixel AA — it reads lighter/thinner until deselected.
-              onComplete: () => older.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
-            },
-          );
-        }
-        if (!el.classList.contains('spacer')) {
-          gsap.fromTo(
-            el,
-            { opacity: 0, scaleX: 0.85, scaleY: 0, transformOrigin: 'center bottom' },
-            {
-              opacity: 1,
-              scaleX: 1,
-              scaleY: 1,
-              duration: REDUCE ? 0.3 : 0.55,
-              ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
-              overwrite: 'auto',
-              onComplete: () => gsap.set(el, { clearProps: 'transform' }),
-            },
-          );
-        } else {
-          el.style.opacity = '';
-        }
-        visible[ci].push(el);
+        if (el) enterAtBottom(el, ci);
       });
       seq += 1;
+    };
+
+    // A poke answers IN the conversation: the next bubble to pop is the poked
+    // creature's reaction, in its normal place in the stack, rather than a
+    // separate floating bubble. Text is written straight into the node — going
+    // through React state would re-render the section mid-animation.
+    const lastLine = {};
+    const revealReaction = (who) => {
+      const pool = POKE_LINES[who];
+      if (!pool || !pool.length) return;
+      let line = pool[(Math.random() * pool.length) | 0];
+      // never the same line twice running — with a 7-line pool, plain random
+      // repeats often enough to notice
+      if (pool.length > 1 && line === lastLine[who]) {
+        line = pool[(pool.indexOf(line) + 1) % pool.length];
+      }
+      lastLine[who] = line;
+      colEls.forEach((els, ci) => {
+        const el = els.find((e) => e.dataset.reaction === who);
+        if (!el) return;
+        if (!el.classList.contains('spacer')) el.textContent = line;
+        enterAtBottom(el, ci);
+      });
     };
 
     // drop the newest (bottom-most) shown bubble off the bottom, let the rest
@@ -222,42 +342,10 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
           el.style.display = 'none';
           gsap.set(el, { clearProps: 'transform' });
           if (!el.classList.contains('spacer')) el.style.opacity = '0';
-          el.parentNode.appendChild(el); // move to the end so DOM order matches the new visual order
-
-          const older = visible[ci].slice();
-          el.style.display = '';
-          const delta = el.offsetHeight + GAP;
-          if (older.length) {
-            gsap.fromTo(
-              older,
-              { y: delta },
-              {
-                y: 0,
-                duration: REDUCE ? 0.25 : 0.55,
-                ease: 'power3.out',
-                overwrite: 'auto',
-                onComplete: () => older.forEach((o) => gsap.set(o, { clearProps: 'transform' })),
-              },
-            );
-          }
-          if (!el.classList.contains('spacer')) {
-            gsap.fromTo(
-              el,
-              { opacity: 0, scaleX: 0.85, scaleY: 0, transformOrigin: 'center bottom' },
-              {
-                opacity: 1,
-                scaleX: 1,
-                scaleY: 1,
-                duration: REDUCE ? 0.3 : 0.55,
-                ease: REDUCE ? 'power2.out' : 'back.out(1.5)',
-                overwrite: 'auto',
-                onComplete: () => gsap.set(el, { clearProps: 'transform' }),
-              },
-            );
-          } else {
-            el.style.opacity = '';
-          }
-          visible[ci].push(el);
+          // a one-off poke reaction retires for good — it was never part of the
+          // scripted loop, so it drifts up the stack once and then leaves
+          if (el.dataset.reaction) return;
+          enterAtBottom(el, ci);
         };
         if (el.classList.contains('spacer')) {
           gsap.delayedCall(RETIRE_DUR, reappear);
@@ -292,6 +380,15 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
       index === 0 ? MAIN_GAP_MIN + Math.random() * (MAIN_GAP_MAX - MAIN_GAP_MIN) : OTHER_GAP;
     let gap = nextGap();
 
+    // the home section owns the poke reactions (pokes can only fire there —
+    // see createAquarium's mainAmt gate)
+    let pendingReaction = null;
+    if (index === 0) {
+      scene.onPoke = (who) => {
+        pendingReaction = who;
+      };
+    }
+
     const loop = () => {
       if (desktopChat) {
         place(axRef.current, scene.anchors.axolotl);
@@ -321,9 +418,18 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
         wasActive = atSection;
 
         const shown = visible[0] ? visible[0].length : 0;
-        if (atSection && now - lastStep > gap) {
-          if (shown < m) {
-            revealNewest(); // still filling the stack for the first time
+        // a pending poke jumps the queue: the visitor just did something, so the
+        // answer shouldn't have to wait out a full conversational beat
+        const effGap = pendingReaction ? Math.min(gap, 0.4) : gap;
+        if (atSection && now - lastStep > effGap) {
+          if (pendingReaction) {
+            revealReaction(pendingReaction);
+            pendingReaction = null;
+          } else if (seq < m) {
+            // still filling the stack for the first time. Keyed off `seq` (the
+            // scripted count) rather than `shown`, so an injected reaction
+            // can't make the scripted conversation stop short.
+            revealNewest();
           } else if (index === 0) {
             // only the opening scene loops forever; every other section just
             // stays fully revealed once its conversation has played out
@@ -350,6 +456,7 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
 
     return () => {
       gsap.ticker.remove(loop);
+      if (index === 0) scene.onPoke = null;
       revealedRef.current = 0;
       colEls.forEach((els) => els.forEach(collapse));
     };
@@ -358,6 +465,29 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
   const withOrder = chat.map((c, gi) => ({ ...c, gi }));
   const axolotl = withOrder.filter((c) => c.who === 'axolotl');
   const octopus = withOrder.filter((c) => c.who === 'octopus');
+
+  // Home-section poke reactions live in the conversation stacks themselves, as
+  // two extra slots per column: a real bubble for the speaker this column
+  // belongs to and an invisible twin for the other, exactly like a scripted
+  // turn — so a reaction lands in the shared timeline instead of floating
+  // beside it. `realFor` is 'both' for the single mobile column.
+  // Left empty here; the reveal writes the line straight into the node.
+  const reactionSlots = (realFor) =>
+    index === 0
+      ? ['axolotl', 'octopus'].map((who) => {
+          const real = realFor === 'both' || realFor === who;
+          return (
+            <div
+              key={`reaction-${who}`}
+              className={`cbubble reaction ${real ? who : 'spacer'}`}
+              data-gi={REACTION_GI[who]}
+              data-reaction={who}
+              aria-hidden={real ? undefined : 'true'}
+              style={{ opacity: 0, display: 'none' }}
+            />
+          );
+        })
+      : null;
 
   return (
     <div ref={rootRef} className="section-content">
@@ -375,10 +505,10 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
       {plainCopy && (
         <div className="about-block">
           <div className="about-inner" ref={titleRef} style={{ opacity: 0 }}>
-            {data.title && <h2 className="about-title">{data.title}</h2>}
+            {data.title && <h2 className="about-title">{splitChars(data.title)}</h2>}
             {(data.content.body || '').split('\n\n').map((p, i) => (
               <p className="about-copy" key={i}>
-                {p}
+                {splitChars(p)}
               </p>
             ))}
           </div>
@@ -399,6 +529,7 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
               </div>
             ),
           )}
+          {reactionSlots('axolotl')}
         </div>
       )}
       {desktopChat && octopus.length > 0 && (
@@ -414,6 +545,7 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
               </div>
             ),
           )}
+          {reactionSlots('octopus')}
         </div>
       )}
 
@@ -432,6 +564,7 @@ function Section({ scene, index, isActive, near, data, mobile, progressRef, acti
               </div>
             ),
           )}
+          {reactionSlots('both')}
         </div>
       )}
 

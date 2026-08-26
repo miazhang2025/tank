@@ -6,6 +6,7 @@ import Lenis from 'lenis';
 import { SECTIONS, WORDMARK } from '../content/sections.js';
 import { STAGE, STAGE_MOBILE, STAGE_ORDER } from '../scene/choreography.js';
 import Section from './Section.jsx';
+import DiveHint from './DiveHint.jsx';
 
 gsap.registerPlugin(ScrollTrigger, Observer);
 
@@ -526,7 +527,12 @@ export default function Stage({ scene, active, catalog }) {
 
     // dev-only hook so headless tests can drive the scroll
     if (import.meta.env && import.meta.env.DEV) {
-      window.__aquaria = { scrollToSection: scene.scrollToSection, lenis, controls: scene.controls };
+      window.__aquaria = {
+        scrollToSection: scene.scrollToSection,
+        lenis,
+        controls: scene.controls,
+        anchors: scene.anchors, // live creature screen anchors — lets tests aim a poke
+      };
     }
 
     return () => {
@@ -599,6 +605,7 @@ export default function Stage({ scene, active, catalog }) {
           </div>
         ))}
       </div>
+      <DiveHint scene={scene} active={active} activeIndex={activeIndex} />
     </>
   );
 }
