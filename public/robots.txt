@@ -1,0 +1,54 @@
+# Crèche Tank — https://crechetank.com
+# Everything here is public work. Default is allow.
+
+User-agent: *
+Allow: /
+
+# ---------------------------------------------------------------------------
+# ANSWER ENGINES (the "GEO" half). These crawlers fetch pages to CITE them in
+# generated answers — being in here is how the studio shows up when someone
+# asks an assistant about it. Allowed on purpose.
+# ---------------------------------------------------------------------------
+User-agent: OAI-SearchBot
+Allow: /
+
+User-agent: ChatGPT-User
+Allow: /
+
+User-agent: PerplexityBot
+Allow: /
+
+User-agent: Perplexity-User
+Allow: /
+
+User-agent: ClaudeBot
+Allow: /
+
+User-agent: Claude-User
+Allow: /
+
+User-agent: Claude-SearchBot
+Allow: /
+
+# ---------------------------------------------------------------------------
+# MODEL TRAINING. Separate question from the above — these mostly collect
+# training data rather than answer live questions, so allowing them buys less
+# visibility. Left allowed for now; flip any of these to `Disallow: /` if you'd
+# rather the work not be trained on.
+# ---------------------------------------------------------------------------
+User-agent: GPTBot
+Allow: /
+
+User-agent: Google-Extended
+Allow: /
+
+User-agent: Applebot-Extended
+Allow: /
+
+User-agent: meta-externalagent
+Allow: /
+
+User-agent: CCBot
+Allow: /
+
+Sitemap: https://crechetank.com/sitemap.xml

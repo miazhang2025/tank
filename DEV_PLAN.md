@@ -312,6 +312,38 @@ passes / targets / per-frame raycasts.
   already on screen, where the old curve was at 0. `y` is a separate tween (1s,
   `power3.out`) so the position still settles early.
 
+## Revisions — round 6 (SEO / GEO)
+
+The site is one client-rendered WebGL page whose copy is fetched at runtime, so a
+crawler that doesn't execute JS saw an empty `<div id="root">` and nothing else.
+Everything below is **generated from the real data** by the `creche-seo` plugin in
+`vite.config.js` (it imports `sections.js` / `social.js` and reads
+`creche-projects.json`), so adding a project updates the metadata with it.
+
+- **`<head>`** — description (from the about copy), canonical, robots, theme-color,
+  Open Graph + Twitter card. `og:image` is emitted **only if `public/og.png` exists**,
+  so the card never points at a 404; drop a 1200×630 in and it lights up.
+- **JSON-LD** — `Organization` + `WebSite` + an `ItemList` of every project
+  (`CreativeWork`, plus a `VideoObject` for the films). This is the main GEO lever:
+  machine-readable fact that needs no JavaScript. `uploadDate` is omitted rather than
+  invented — the data carries a year, not a date.
+- **`<noscript>` fallback** — the studio blurb and every project's title/year/tagline/
+  summary/link as real prose (~2.6 kB). Not cloaking: same content as the rendered
+  site, and inert for anyone with JS (measured 0px tall).
+- **`public/robots.txt`** — allow-all, with the answer-engine crawlers (OAI-SearchBot,
+  PerplexityBot, ClaudeBot, …) called out explicitly since being cited by them is the
+  point of GEO. Training-only crawlers are grouped separately and commented, so
+  refusing them later is a one-word edit.
+- **`sitemap.xml` + `llms.txt`** — emitted at build. `lastmod` tracks the project
+  file's own `updated` field.
+
+**Known gaps, deliberately not fixed here**
+- `SITE` in `vite.config.js` is inferred from the contact email. **Verify before the
+  first deploy** — a wrong canonical is worse than none.
+- `flaneur` and `ep0ch-art` have no `year`, so they ship without `datePublished`.
+- One URL, no per-project routes, no prerender. Per-project URLs + a prerender pass
+  is the biggest remaining SEO win and is an architecture change, not a metadata one.
+
 ## E. How to feed in your content (after framework)
 - **Dialogue / copy:** edit `src/content/sections.js` (each section's `chat[]`, `content.heading/body/button`). Width is fixed, height auto — just write text.
 - **Models:** drop GLBs in `public/models/` (current: `axolotl.glb`, `octopus.glb`, fish `red.glb` + `white fish.glb`). Creature front-facing yaws live in `createAquarium.js` (axolotl π/4, octopus 3π/4) — re-tune via `?ay=&oy=` if you swap models.
