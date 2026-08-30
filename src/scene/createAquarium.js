@@ -2,7 +2,11 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { NOISE } from './shaders.js';
 import { STAGE, STAGE_ORDER, FOCUS_DIST } from './choreography.js';
-import { playSfx } from './sfx.js';
+import { playSfx, playSfxRandom } from './sfx.js';
+
+// Tapping the glass anywhere but a creature makes a ripple — and one of five
+// bubble pops, picked at random so a run of taps never repeats the same sound.
+const BUBBLE_SFX = ['bubble1', 'bubble2', 'bubble3', 'bubble4', 'bubble5'];
 
 // The reference scene predates three.js colour management. Disable it so raw
 // THREE.Color uniform values stay the same byte-for-byte as r128 (the custom
@@ -1417,7 +1421,7 @@ export function createAquarium(container, opts = {}) {
     }
     if (!REDUCE) scatterFish(pWorld);
     knockGlance.t = 0; // both creatures glance at the strike point
-    playSfx('knock', { volume: 0.45 });
+    playSfxRandom(BUBBLE_SFX, { volume: 0.45 });
 
     const now = clock.elapsedTime;
     knockRun = now - lastKnockAt < KNOCK_RUN_GAP ? knockRun + 1 : 1;
@@ -1667,6 +1671,10 @@ export function createAquarium(container, opts = {}) {
   const ORB_MAGNET_MAX = 30; // …capped this many CSS px, so it never leaves its slot
   const orbGeo = new THREE.SphereGeometry(1, LOW_POWER ? 24 : 48, LOW_POWER ? 16 : 32);
   let orbCursorOn = false;
+  // Rising-edge hover sound: last time ANY orb pinged, so sweeping the cursor
+  // across the arc plays a run of notes rather than a single smeared chord.
+  const ORB_HOVER_SFX_GAP = 0.12;
+  let lastOrbHoverSfxAt = -1;
 
   /** id -> live screen-px anchor, for the DOM labels that ride each orb */
   const orbAnchors = {};
@@ -1690,6 +1698,8 @@ export function createAquarium(container, opts = {}) {
       fade: 0,
       lastAnchor: null,
       click: null,
+      hoverSfx: 'hover', // the lineup pings when the cursor lands on a piece
+
       getAnchor: () => (controls.lineupHidden ? null : controls.lineupAnchor),
       layout: (o, group, anchor) => {
         const slot = group.order.indexOf(o.id);
@@ -1877,6 +1887,7 @@ export function createAquarium(container, opts = {}) {
         phase: i * 1.7,
         fade: 0,
         hover: 0,
+        hovered: false, // latched hover state, for the one-shot hover sound
         isModel: false, // flips once its GLB (if any) has landed
         yaw: p.modelYaw || 0, // resting turn that faces a model's front at camera
       };
@@ -1948,6 +1959,7 @@ export function createAquarium(container, opts = {}) {
       for (const o of group.orbs) {
         o.mesh.visible = false;
         o.hover = 0;
+        o.hovered = false;
         orbAnchors[o.id].visible = false;
       }
       return false;
@@ -1967,6 +1979,7 @@ export function createAquarium(container, opts = {}) {
       const a = orbAnchors[o.id];
       if (!o.mesh.visible || !L) {
         a.visible = false;
+        o.hovered = false;
         continue;
       }
 
@@ -1996,6 +2009,21 @@ export function createAquarium(container, opts = {}) {
         }
       }
       o.hover += (pull - o.hover) * Math.min(1, dt * 12);
+      // Sound fires off the RAW pull, not the smoothed o.hover: `pull` is a
+      // flat 1 inside the disc, so the ping lands the instant the cursor is on
+      // the piece. Wide hysteresis (1 in, 0.5 out) keeps an orb that is sliding
+      // under the magnet from chattering the sample.
+      if (group.hoverSfx) {
+        if (!o.hovered && pull > 0.9) {
+          o.hovered = true;
+          if (t - lastOrbHoverSfxAt > ORB_HOVER_SFX_GAP) {
+            lastOrbHoverSfxAt = t;
+            playSfx(group.hoverSfx, { volume: 0.32, jitter: 0.05 });
+          }
+        } else if (o.hovered && pull < 0.5) {
+          o.hovered = false;
+        }
+      }
       if (o.hover > 0.002) {
         emphasis *= 1 + 0.1 * o.hover;
         rPx *= 1 + 0.1 * o.hover;

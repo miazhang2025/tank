@@ -1004,6 +1004,96 @@ body.bright-stage .wordmark {
   color: var(--c-red);
   text-shadow: 0 1px 12px rgba(255, 255, 255, 0.55);
 }
+/* ---------- ambient sound toggle ----------
+   Bottom-right, mirroring the contact caption in the opposite corner. Type
+   only, like the rail chips — the equaliser bars are the whole "icon", and
+   their stillness is what reads as muted. */
+.sound-toggle {
+  position: fixed;
+  right: 18px;
+  bottom: 16px;
+  z-index: 11;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: #e7f6f2;
+  font-family: var(--mono);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: lowercase;
+  opacity: 0.5;
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.5);
+  transition: opacity 0.3s ease, color 0.8s ease, text-shadow 0.8s ease;
+}
+.sound-toggle:hover {
+  opacity: 1;
+}
+.sound-bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 11px;
+}
+.sound-bars i {
+  width: 2px;
+  height: 100%;
+  background: currentColor;
+  transform-origin: 50% 100%;
+  transform: scaleY(0.25);
+  animation: soundBar 0.9s ease-in-out infinite;
+}
+/* prime numbers of a sort: durations that don't share a beat, so the four bars
+   never fall back into lockstep the way a single delay offset would */
+.sound-bars i:nth-child(2) {
+  animation-duration: 1.3s;
+  animation-delay: -0.35s;
+}
+.sound-bars i:nth-child(3) {
+  animation-duration: 0.7s;
+  animation-delay: -0.6s;
+}
+.sound-bars i:nth-child(4) {
+  animation-duration: 1.7s;
+  animation-delay: -0.15s;
+}
+@keyframes soundBar {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+.sound-toggle.is-off .sound-bars i {
+  animation: none;
+  transform: scaleY(0.2);
+}
+body.bright-stage .sound-toggle {
+  color: #23474f;
+  opacity: 0.68;
+  text-shadow: 0 1px 8px rgba(255, 255, 255, 0.6);
+}
+@media (prefers-reduced-motion: reduce) {
+  .sound-bars i {
+    animation: none;
+  }
+}
+/* on a phone the bars alone carry it — the word crowds the rail's chips */
+@media (max-width: 768px) {
+  .sound-toggle {
+    right: 14px;
+    bottom: 12px;
+  }
+  .sound-word {
+    display: none;
+  }
+}
+
 /* ---------- home section: dive / interaction hint ----------
    Bottom-centre, in the clear gap between the two creatures' chat stacks (they
    sit at sx .36/.64 on `main`) and above the corner text. Mounted by Stage,

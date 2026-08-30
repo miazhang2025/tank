@@ -4,8 +4,12 @@ import Aquarium from './components/Aquarium.jsx';
 import Sidebar from './components/Sidebar.jsx';
 import Stage from './components/Stage.jsx';
 import Loader from './components/Loader.jsx';
+import SoundToggle from './components/SoundToggle.jsx';
 import { loadProjects } from './content/projects.js';
-import { primeSfx } from './scene/sfx.js';
+import { primeSfx, startAmbience } from './scene/sfx.js';
+
+// short hits, decoded on Enter so the first one of each is audible
+const SFX = ['poke', 'hover', 'bubble1', 'bubble2', 'bubble3', 'bubble4', 'bubble5'];
 
 export default function App() {
   const [scene, setScene] = useState(null);
@@ -59,12 +63,16 @@ export default function App() {
       </div>
 
       <Sidebar scene={scene} />
+      {entered && <SoundToggle />}
       <Loader
         ready={ready}
         onEnter={() => {
-          // a real gesture: decode the interaction sounds now (and unsuspend the
-          // AudioContext) so the visitor's first knock actually makes a noise
-          primeSfx(['knock', 'poke']);
+          // A real gesture: decode the interaction sounds now (and unsuspend
+          // the AudioContext) so the visitor's first tap actually makes a
+          // noise, and start the underwater bed — it loops from here to the
+          // end of the visit, across every section.
+          primeSfx(SFX);
+          startAmbience('underwater', { volume: 0.3, fadeIn: 4 });
           setEntered(true);
         }}
       />
