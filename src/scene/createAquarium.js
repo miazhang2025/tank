@@ -4,8 +4,8 @@ import { NOISE } from './shaders.js';
 import { STAGE, STAGE_ORDER, FOCUS_DIST } from './choreography.js';
 import { playSfx, playSfxRandom } from './sfx.js';
 
-// Tapping the glass anywhere but a creature makes a ripple — and one of five
-// bubble pops, picked at random so a run of taps never repeats the same sound.
+// Any tap in the water, in any section, throws bubbles — and one of five pops,
+// picked at random so a run of taps never repeats the same sound.
 const BUBBLE_SFX = ['bubble1', 'bubble2', 'bubble3', 'bubble4', 'bubble5'];
 
 // The reference scene predates three.js colour management. Disable it so raw
@@ -1384,8 +1384,10 @@ export function createAquarium(container, opts = {}) {
   // ---------- home-section tap routing: poke a creature, else knock the glass ----------
   // Armed only while mainAmt is high, so none of it exists in about/work/more.
   // burst() has already run (updating `pointer`/`pWorld`) when this is called.
+  // Returns true if the tap landed on a creature — the caller uses that to
+  // decide between the poke sound (which pokeCreature plays) and a bubble.
   function routeMainTap(x, y) {
-    if (mainAmt < 0.7) return;
+    if (mainAmt < 0.7) return false;
     const now = clock.elapsedTime;
     // NEAREST hit wins, not the first in the list: the discs can still overlap
     // slightly in portrait, and picking by list order would always hand an
@@ -1406,9 +1408,10 @@ export function createAquarium(container, opts = {}) {
         lastPokeAt = now;
         pokeCreature(best, x);
       }
-      return;
+      return true; // a throttled repeat is still a creature tap, not water
     }
     knockAt(x, y);
+    return false;
   }
 
   function knockAt(x, y) {
@@ -1421,7 +1424,6 @@ export function createAquarium(container, opts = {}) {
     }
     if (!REDUCE) scatterFish(pWorld);
     knockGlance.t = 0; // both creatures glance at the strike point
-    playSfxRandom(BUBBLE_SFX, { volume: 0.45 });
 
     const now = clock.elapsedTime;
     knockRun = now - lastKnockAt < KNOCK_RUN_GAP ? knockRun + 1 : 1;
@@ -1454,17 +1456,21 @@ export function createAquarium(container, opts = {}) {
     if (api.onPoke) api.onPoke(id); // React shows the one-off reaction line
   }
 
+  // A tap anywhere in the tank throws up a splash of bubbles — in every
+  // section, not just home — so the bubble pop rides burst(), not the
+  // home-only glass knock. The one tap that sounds different is a creature
+  // poke, which has its own noise.
+  const tapWater = (x, y) => {
+    burst(x, y);
+    if (!routeMainTap(x, y)) playSfxRandom(BUBBLE_SFX, { volume: 0.45 });
+  };
   const onMouseDown = (e) => {
     if (onUISurface(e)) return;
-    burst(e.clientX, e.clientY);
-    routeMainTap(e.clientX, e.clientY);
+    tapWater(e.clientX, e.clientY);
   };
   const onTouchStart = (e) => {
     const t = e.touches[0];
-    if (t && !onUISurface(e)) {
-      burst(t.clientX, t.clientY);
-      routeMainTap(t.clientX, t.clientY);
-    }
+    if (t && !onUISurface(e)) tapWater(t.clientX, t.clientY);
   };
   window.addEventListener('mousemove', onMouseMove);
   window.addEventListener('touchmove', onTouchMove, { passive: true });
